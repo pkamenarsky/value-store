@@ -11,19 +11,11 @@ module Database.Value
   , newPVar
   , readPVar
   , writePVar
-
-  , VRef
-  , persist
-  , persistMaybe
-  , deref
-  , derefMaybe
-  , mapRef
   )
 where
 
 import Database.Value.VTM
 import Database.Value.PVar
-import Database.Value.VRef
 
 import Control.Exception
 import Data.ByteString
