@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
+{-# LANGUAGE QuasiQuotes                #-}
 
 module Database.Value.VTM
   ( VTM
@@ -25,6 +26,7 @@ import Data.Typeable
 
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.Notification
+import Database.PostgreSQL.Simple.SqlQQ
 import Database.PostgreSQL.Simple.Transaction
 
 type VTM = RWS.RWST Connection () (Set Label) IO
@@ -33,6 +35,15 @@ type Label = Text
 
 data VTMException = Retry (Set ByteString) deriving (Show, Typeable)
 instance Exception VTMException
+
+initVTM :: Connection -> IO ()
+initVTM conn = void $ execute_ conn
+  [sql|
+        CREATE TABLE variable (
+            label   varchar PRIMARY KEY,
+            value   jsonb
+        );
+  |]
 
 atomically :: Connection -> VTM a -> IO a
 atomically conn x = do
