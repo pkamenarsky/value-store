@@ -19,6 +19,7 @@ library
   exposed-modules:     Database.Value
                      , Database.Value.PVar
                      , Database.Value.VTM
+                     , Database.Query
   -- other-modules:       
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric
   build-depends:       base >=4.7 && <5
