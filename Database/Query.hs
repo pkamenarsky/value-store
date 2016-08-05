@@ -80,6 +80,7 @@ triggersQuery (Query xs flr limit) x
 -}
 
 data Query a where
+  All    :: Query a
   Filter :: Expr a Bool -> Query a -> Query a
   Sort   :: Ord b => Label a b -> Query a -> Query a
   Limit  :: Int -> Query a -> Query a
