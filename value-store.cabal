@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Database.Value
                      , Database.Value.PVar
+                     , Database.Value.PSet
                      , Database.Value.VTM
                      , Database.Query
   -- other-modules:       

@@ -14,7 +14,9 @@ insertBy' cmp x ys@(y:ys') i
 
 --------------------------------------------------------------------------------
 
-data Label r a = Label String (r -> a)
+data Label r a =
+    Label String (r -> a)
+  | forall s. Compose (Label r s) (Label s a)
 
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
@@ -61,6 +63,7 @@ expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
 
 --------------------------------------------------------------------------------
 
+{-
 data Limit a = forall r. Ord r => Limit (Label a r) Int | NoLimit
 
 data Query a = Query [a] (a -> Bool) (Limit a)
@@ -74,5 +77,12 @@ triggersQuery (Query xs flr limit) x
   , (pos, xs')      <- insertBy' (comparing get) x xs 0 = if pos < count
       then Just (Query (take count xs') flr limit, pos)
       else Nothing
+-}
+
+data Query a where
+  Filter :: Expr a Bool -> Query a -> Query a
+  Sort   :: Ord b => Label a b -> Query a -> Query a
+  Limit  :: Int -> Query a -> Query a
+  Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
 --------------------------------------------------------------------------------
