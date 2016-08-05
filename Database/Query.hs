@@ -1,3 +1,5 @@
+{-# LANGUAGE GADTs #-}
+
 module Database.Query where
 
 data Limit a = Limit (a -> a -> Ordering) Int | NoLimit
@@ -22,3 +24,32 @@ insertBy' cmp x ys@(y:ys') i
  = case cmp x y of
      GT -> let (i', ys'') = insertBy' cmp x ys' (i + 1) in (i', y : ys'')
      _  -> (i, x : ys)
+
+--------------------------------------------------------------------------------
+
+data Expr r a where
+  Cnst :: a -> Expr r a
+  Fld  :: String -> (r -> a) -> Expr r a
+  And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
+  Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
+  Plus :: Expr r Int -> Expr r Int -> Expr r Int
+
+foldExpr :: Expr r a -> (r -> a)
+foldExpr (Cnst a) = const a
+foldExpr (Fld _ get) = get
+foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
+foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
+foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
+
+--------------------------------------------------------------------------------
+
+data Person = Person { _name :: String, _age :: Int }
+
+name :: Expr Person String
+name = Fld "name" _name
+
+age :: Expr Person Int
+age = Fld "age" _age
+
+expr :: Expr Person Bool
+expr = (age `Plus` Cnst 5) `Grt` (Cnst 6)
