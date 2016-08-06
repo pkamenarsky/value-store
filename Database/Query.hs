@@ -79,11 +79,24 @@ triggersQuery (Query xs flr limit) x
       else Nothing
 -}
 
+data QueryCache a = QueryCache [a]
+
 data Query a where
   All    :: Query a
   Filter :: Expr a Bool -> Query a -> Query a
-  Sort   :: Ord b => Label a b -> Query a -> Query a
-  Limit  :: Int -> Query a -> Query a
+  Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
+
+data Index = Unknown | Index Int
+
+passesQuery :: Query a -> a -> IO (Maybe Index)
+passesQuery All a = return (Just Unknown)
+passesQuery (Filter f q) a = do
+  r <- passesQuery q a
+  case r of
+    Nothing -> return Nothing
+    Just _  -> if foldExpr f a
+      then return (Just Unknown)
+      else return Nothing
 
 --------------------------------------------------------------------------------
