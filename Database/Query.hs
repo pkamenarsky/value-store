@@ -109,7 +109,7 @@ foldQuerySql (Sort _ label limit q) = do
   fq <- foldQuerySql q
   return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ ".label" ++ maybe "" ((" limit " ++) . show) limit
 
-q1 = Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")
+q1 = Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")
 
 q1sql :: String
 q1sql = evalState (foldQuerySql q1) 0
