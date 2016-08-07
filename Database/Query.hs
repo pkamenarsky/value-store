@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TupleSections #-}
 
 module Database.Query where
 
@@ -87,12 +88,18 @@ data Query a where
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
+foldQuerySql :: Query a -> String
+foldQuerySql (Filter f q) = "select * from (" ++ foldQuerySql q ++ ") where " ++ foldExprSql f
+
 data Index = Unknown | Index Int
 
 data Row = Row String
 
 fromRow :: Row -> Maybe a
 fromRow = undefined
+
+updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe Index)
+updateCache = undefined
 
 passesQuery :: Query a -> Row -> IO (Maybe (Index, a))
 passesQuery (All (Row r')) row@(Row r) = if r == r'
@@ -107,5 +114,12 @@ passesQuery (Filter f q) row = do
     Just (_, a)  -> if foldExpr f a
       then return (Just (Unknown, a))
       else return Nothing
+passesQuery (Sort cache label limit q) row = do
+  r <- passesQuery q row
+  case r of
+    Nothing -> return Nothing
+    Just (_, a) -> do
+      index <- updateCache cache label limit a
+      return ((,a) <$> index)
 
 --------------------------------------------------------------------------------
