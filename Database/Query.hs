@@ -4,6 +4,8 @@
 
 module Database.Query where
 
+import Control.Monad.State
+
 import Data.Ord
 
 insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
@@ -36,12 +38,12 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: Expr r a -> String
-foldExprSql (Cnst a) = show a
-foldExprSql (Fld (Label name _)) = name
-foldExprSql (And a b) = brackets $ foldExprSql a ++ " and " ++ foldExprSql b
-foldExprSql (Grt a b) = brackets $ foldExprSql a ++ " > " ++ foldExprSql b
-foldExprSql (Plus a b) = brackets $ foldExprSql a ++ " + " ++ foldExprSql b
+foldExprSql :: String -> Expr r a -> String
+foldExprSql var (Cnst a) = show a
+foldExprSql var (Fld (Label name _)) = var ++ "." ++ name
+foldExprSql var (And a b) = brackets $ foldExprSql var a ++ " and " ++ foldExprSql var b
+foldExprSql var (Grt a b) = brackets $ foldExprSql var a ++ " > " ++ foldExprSql var b
+foldExprSql var (Plus a b) = brackets $ foldExprSql var a ++ " + " ++ foldExprSql var b
 
 --------------------------------------------------------------------------------
 
@@ -88,8 +90,24 @@ data Query a where
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
-foldQuerySql :: Query a -> String
-foldQuerySql (Filter f q) = "select * from (" ++ foldQuerySql q ++ ") where " ++ foldExprSql f
+type Var = State Int
+
+genVar :: Var String
+genVar = do
+  i <- get
+  modify (+1)
+  return $ "a" ++ show i
+
+foldQuerySql :: Query a -> Var String
+foldQuerySql (All (Row row)) = return $ "select * from " ++ row
+foldQuerySql (Filter f q) = do
+  var <- genVar
+  fq <- foldQuerySql q
+  return $ "select * from (" ++ fq ++ ") " ++ var ++ " where " ++ foldExprSql var f
+foldQuerySql (Sort _ label limit q) = do
+  var <- genVar
+  fq <- foldQuerySql q
+  return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ ".label limit " ++ show limit
 
 data Index = Unknown | Index Int
 
