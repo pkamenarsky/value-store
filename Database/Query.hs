@@ -28,18 +28,20 @@ data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Sbst :: String -> Expr r a
   Fld  :: Label r a -> Expr r a
-  Fst  :: Label r a -> Expr (r, s) a
-  Snd  :: Label s a -> Expr (r, s) a
+  Fst  :: Show a => Label r a -> Expr (r, s) a
+  Snd  :: Show a => Label s a -> Expr (r, s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
 
-substFst :: Expr (l, r) a -> String -> Expr r a
+substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld a) sub = error "Invalid field access"
-substFst (Fst a) sub = Sbst sub
+substFst (Fst (Label _ get)) sub = Sbst (show $ get sub)
 substFst (Snd a) sub = Fld a
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
+substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
+substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 tee :: Expr (Person, Person) Bool
 tee = Fst age `Grt` Snd age
@@ -58,6 +60,7 @@ type Ctx = (String, String, String)
 
 foldExprSql :: Ctx -> Expr r a -> String
 foldExprSql ctx (Cnst a) = show a
+foldExprSql ctx (Sbst a) = a
 foldExprSql (var, _, _) (Fld (Label name _)) = var ++ "." ++ name
 foldExprSql (_, fst, _) (Fst (Label name _)) = fst ++ "." ++ name
 foldExprSql (_, _, snd) (Snd (Label name _)) = snd ++ "." ++ name
@@ -108,7 +111,6 @@ data Query a where
   All    :: Row -> Query a
   Filter :: Expr a Bool -> Query a -> Query a
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
-  JoinEq :: Eq r => Label a r -> Label b r -> Query a -> Query b -> Query (a, b)
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
 type Var = State Int
@@ -139,7 +141,12 @@ foldQuerySql (Join f ql qr) = do
   fqr <- foldQuerySql qr
   return $ "select * from (" ++ fql ++ ") " ++ varl ++ " inner join (" ++ fqr ++") " ++ varr ++ " on " ++ foldExprSql ("var", varl, varr) f
 
-q1 = Join (Fst age `Grt` Snd age) (Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")) (All (Row "person"))
+ql = (Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person"))
+qr = All (Row "person")
+q1 = Join (Fst age `Grt` Snd age) ql qr
+
+subsql = substFst (Fst age `Grt` Snd age) (Person "asd" 6)
+subsqlSql = foldExprSql ("var", "fst", "snd") subsql
 
 q1sql :: String
 q1sql = evalState (foldQuerySql q1) 0
@@ -154,39 +161,32 @@ fromRow = undefined
 updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe (Index a))
 updateCache = undefined
 
-passesQuery :: Query a -> QueryCache a -> Row -> IO (Maybe (Index a, a))
-passesQuery (All (Row r')) _ row@(Row r) = if r == r'
+passesQuery :: Query a -> Row -> IO (Maybe (Index a, a))
+passesQuery (All (Row r')) row@(Row r) = if r == r'
   then case fromRow row of
     Just a -> return (Just (Unknown, a))
     _      -> return Nothing
   else return Nothing
-passesQuery (Filter f q) cache row = do
-  r <- passesQuery q cache row
+passesQuery (Filter f q) row = do
+  r <- passesQuery q row
   case r of
     Nothing -> return Nothing
     Just (_, a)  -> if foldExpr f a
       then return (Just (Unknown, a))
       else return Nothing
-passesQuery (Sort cache label limit q) _ row = do
-  r <- passesQuery q cache row
+passesQuery (Sort cache label limit q) row = do
+  r <- passesQuery q row
   case r of
     Nothing -> return Nothing
     Just (_, a) -> do
       index <- updateCache cache label limit a
       return ((,a) <$> index)
-passesQuery (JoinEq (Label _ ll) (Label _ lr) ql qr) (QueryCache xs) row = do
-  r <- passesQuery ql (QueryCache $ map fst xs) row -- pass cache like that good?
-  case r of
-    Nothing -> return Nothing
-    Just (_, a) -> do
-      let r' = [ (a, b) | (_, b) <- xs, ll a == lr b ]
-      return undefined
-passesQuery (Join f ql qr) (QueryCache xs) row = do
-  rl <- passesQuery ql (QueryCache $ map fst xs) row
-  rr <- passesQuery qr (QueryCache $ map snd xs) row
+passesQuery (Join f ql qr) row = do
+  rl <- passesQuery ql row
+  rr <- passesQuery qr row
   case (rl, rr) of
     (Just (_, a), Nothing) -> do
-      let sql = Filter (substFst f "") qr
+      let sql = Filter (substFst f a) qr
       return undefined
   return undefined
 
