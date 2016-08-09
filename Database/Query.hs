@@ -6,6 +6,7 @@ module Database.Query where
 
 import Control.Monad.State
 
+import Data.Maybe
 import Data.Ord
 
 insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
@@ -161,33 +162,30 @@ fromRow = undefined
 updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe (Index a))
 updateCache = undefined
 
-passesQuery :: Query a -> Row -> IO (Maybe (Index a, a))
+requestFromDb :: String -> IO [a]
+requestFromDb = undefined
+
+passesQuery :: Query a -> Row -> IO [(Index a, a)]
 passesQuery (All (Row r')) row@(Row r) = if r == r'
   then case fromRow row of
-    Just a -> return (Just (Unknown, a))
-    _      -> return Nothing
-  else return Nothing
+    Just a -> return [(Unknown, a)]
+    _      -> return []
+  else return []
 passesQuery (Filter f q) row = do
-  r <- passesQuery q row
-  case r of
-    Nothing -> return Nothing
-    Just (_, a)  -> if foldExpr f a
-      then return (Just (Unknown, a))
-      else return Nothing
+  rs <- passesQuery q row
+  return $ filter (foldExpr f . snd) rs
 passesQuery (Sort cache label limit q) row = do
-  r <- passesQuery q row
-  case r of
-    Nothing -> return Nothing
-    Just (_, a) -> do
-      index <- updateCache cache label limit a
-      return ((,a) <$> index)
+  rs <- passesQuery q row
+  rs' <- forM rs $ \(_, r) -> do
+    index <- updateCache cache label limit r
+    return ((,r) <$> index)
+  return $ catMaybes rs'
 passesQuery (Join f ql qr) row = do
   rl <- passesQuery ql row
   rr <- passesQuery qr row
-  case (rl, rr) of
-    (Just (_, a), Nothing) -> do
-      let sql = Filter (substFst f a) qr
-      return undefined
-  return undefined
+  rs' <- forM rl $ \(_, r) -> do
+    ls <- requestFromDb $ evalState (foldQuerySql $ Filter (substFst f r) qr) 0
+    return [ (Unknown, (r, l)) | l <- ls ]
+  return $ concat rs'
 
 --------------------------------------------------------------------------------
