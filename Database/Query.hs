@@ -26,12 +26,20 @@ data Second
 
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
+  Sbst :: String -> Expr r a
   Fld  :: Label r a -> Expr r a
   Fst  :: Label r a -> Expr (r, s) a
   Snd  :: Label s a -> Expr (r, s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
+
+substFst :: Expr (l, r) a -> String -> Expr r a
+substFst (Cnst a) sub = Cnst a
+substFst (Fld a) sub = error "Invalid field access"
+substFst (Fst a) sub = Sbst sub
+substFst (Snd a) sub = Fld a
+substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 
 tee :: Expr (Person, Person) Bool
 tee = Fst age `Grt` Snd age
@@ -177,7 +185,9 @@ passesQuery (Join f ql qr) (QueryCache xs) row = do
   rl <- passesQuery ql (QueryCache $ map fst xs) row
   rr <- passesQuery qr (QueryCache $ map snd xs) row
   case (rl, rr) of
-    (Just (_, a), Nothing) -> return undefined
+    (Just (_, a), Nothing) -> do
+      let sql = Filter (substFst f "") qr
+      return undefined
   return undefined
 
 --------------------------------------------------------------------------------
