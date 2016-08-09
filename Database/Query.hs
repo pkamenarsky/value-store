@@ -39,7 +39,9 @@ substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld a) sub = error "Invalid field access"
 substFst (Fst (Label _ get)) sub = Sbst (show $ get sub)
+substFst (Fst' f) sub = Sbst (show $ foldExpr f sub)
 substFst (Snd a) sub = Fld a
+substFst (Snd' f) sub = undefined
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
