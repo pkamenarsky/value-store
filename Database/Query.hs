@@ -21,12 +21,20 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
+data First
+data Second
+
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Fld  :: Label r a -> Expr r a
+  Fst  :: Label r a -> Expr (r, s) a
+  Snd  :: Label s a -> Expr (r, s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
+
+tee :: Expr (Person, Person) Bool
+tee = Fst age `Grt` Snd age
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
@@ -38,12 +46,16 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: String -> Expr r a -> String
-foldExprSql var (Cnst a) = show a
-foldExprSql var (Fld (Label name _)) = var ++ "." ++ name
-foldExprSql var (And a b) = brackets $ foldExprSql var a ++ " and " ++ foldExprSql var b
-foldExprSql var (Grt a b) = brackets $ foldExprSql var a ++ " > " ++ foldExprSql var b
-foldExprSql var (Plus a b) = brackets $ foldExprSql var a ++ " + " ++ foldExprSql var b
+type Ctx = (String, String, String)
+
+foldExprSql :: Ctx -> Expr r a -> String
+foldExprSql ctx (Cnst a) = show a
+foldExprSql (var, _, _) (Fld (Label name _)) = var ++ "." ++ name
+foldExprSql (_, fst, _) (Fst (Label name _)) = fst ++ "." ++ name
+foldExprSql (_, _, snd) (Snd (Label name _)) = snd ++ "." ++ name
+foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
+foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
+foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
 --------------------------------------------------------------------------------
 
@@ -88,7 +100,7 @@ data Query a where
   All    :: Row -> Query a
   Filter :: Expr a Bool -> Query a -> Query a
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
-  JoinEq :: Label a r -> Label b r -> Query a -> Query b -> Query (a, b)
+  JoinEq :: Eq r => Label a r -> Label b r -> Query a -> Query b -> Query (a, b)
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
 type Var = State Int
@@ -99,16 +111,25 @@ genVar = do
   modify (+1)
   return $ "a" ++ show i
 
+retrieveSql :: Query a -> [a]
+retrieveSql = undefined
+
 foldQuerySql :: Query a -> Var String
 foldQuerySql (All (Row row)) = return $ "select * from " ++ row
 foldQuerySql (Filter f q) = do
   var <- genVar
   fq <- foldQuerySql q
-  return $ "select * from (" ++ fq ++ ") " ++ var ++ " where " ++ foldExprSql var f
+  return $ "select * from (" ++ fq ++ ") " ++ var ++ " where " ++ foldExprSql (var, "fst", "snd") f
 foldQuerySql (Sort _ label limit q) = do
   var <- genVar
   fq <- foldQuerySql q
   return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ ".label" ++ maybe "" ((" limit " ++) . show) limit
+foldQuerySql (Join f ql qr) = do
+  varl <- genVar
+  varr <- genVar
+  fql <- foldQuerySql ql
+  fqr <- foldQuerySql qr
+  return $ "select * from (" ++ fql ++ ") " ++ varl ++ " inner join (" ++ fqr ++") " ++ varr ++ " on " ++ foldExprSql ("var", varl, varr) f
 
 q1 = Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")
 
@@ -145,9 +166,18 @@ passesQuery (Sort cache label limit q) _ row = do
     Just (_, a) -> do
       index <- updateCache cache label limit a
       return ((,a) <$> index)
+passesQuery (JoinEq (Label _ ll) (Label _ lr) ql qr) (QueryCache xs) row = do
+  r <- passesQuery ql (QueryCache $ map fst xs) row -- pass cache like that good?
+  case r of
+    Nothing -> return Nothing
+    Just (_, a) -> do
+      let r' = [ (a, b) | (_, b) <- xs, ll a == lr b ]
+      return undefined
 passesQuery (Join f ql qr) (QueryCache xs) row = do
-  let a = undefined
-      r = [ (a, b) | (_, b) <- xs, foldExpr f (a, b) ] -- works for eq only
+  rl <- passesQuery ql (QueryCache $ map fst xs) row
+  rr <- passesQuery qr (QueryCache $ map snd xs) row
+  case (rl, rr) of
+    (Just (_, a), Nothing) -> return undefined
   return undefined
 
 --------------------------------------------------------------------------------
