@@ -22,15 +22,15 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
-data First
-data Second
-
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Sbst :: String -> Expr r a
   Fld  :: Label r a -> Expr r a
+  Fld' :: String -> (r -> a) -> Expr r a
   Fst  :: Show a => Label r a -> Expr (r, s) a
+  Fst'  :: Show a => Expr r a -> Expr (r, s) a
   Snd  :: Show a => Label s a -> Expr (r, s) a
+  Snd'  :: Show a => Expr s a -> Expr (r, s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
@@ -85,8 +85,14 @@ age = Label "age" _age
 ageE :: Expr Person Int
 ageE = Fld age
 
+ageE' :: Expr Person Int
+ageE' = Fld' "age" _age
+
 expr :: Expr Person Bool
 expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
+
+te' :: Expr ((Person, Person), Person) Bool
+te' = (Fst' (Fst' ageE') `Grt` (Snd' ageE)) `And` (Fst' (Snd' ageE') `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
 
