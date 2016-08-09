@@ -120,10 +120,10 @@ foldQuerySql (Filter f q) = do
   var <- genVar
   fq <- foldQuerySql q
   return $ "select * from (" ++ fq ++ ") " ++ var ++ " where " ++ foldExprSql (var, "fst", "snd") f
-foldQuerySql (Sort _ label limit q) = do
+foldQuerySql (Sort _ (Label label _) limit q) = do
   var <- genVar
   fq <- foldQuerySql q
-  return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ ".label" ++ maybe "" ((" limit " ++) . show) limit
+  return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 foldQuerySql (Join f ql qr) = do
   varl <- genVar
   varr <- genVar
@@ -131,7 +131,7 @@ foldQuerySql (Join f ql qr) = do
   fqr <- foldQuerySql qr
   return $ "select * from (" ++ fql ++ ") " ++ varl ++ " inner join (" ++ fqr ++") " ++ varr ++ " on " ++ foldExprSql ("var", varl, varr) f
 
-q1 = Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")
+q1 = Join (Fst age `Grt` Snd age) (Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person")) (All (Row "person"))
 
 q1sql :: String
 q1sql = evalState (foldQuerySql q1) 0
