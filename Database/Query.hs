@@ -88,6 +88,7 @@ data Query a where
   All    :: Row -> Query a
   Filter :: Expr a Bool -> Query a -> Query a
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
+  JoinEq :: Label a r -> Label b r -> Query a -> Query b -> Query (a, b)
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 
 type Var = State Int
@@ -114,35 +115,39 @@ q1 = Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `
 q1sql :: String
 q1sql = evalState (foldQuerySql q1) 0
 
-data Index = Unknown | Index Int
+data Index a = Unknown | Index Int
 
 data Row = Row String
 
 fromRow :: Row -> Maybe a
 fromRow = undefined
 
-updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe Index)
+updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe (Index a))
 updateCache = undefined
 
-passesQuery :: Query a -> Row -> IO (Maybe (Index, a))
-passesQuery (All (Row r')) row@(Row r) = if r == r'
+passesQuery :: Query a -> QueryCache a -> Row -> IO (Maybe (Index a, a))
+passesQuery (All (Row r')) _ row@(Row r) = if r == r'
   then case fromRow row of
     Just a -> return (Just (Unknown, a))
     _      -> return Nothing
   else return Nothing
-passesQuery (Filter f q) row = do
-  r <- passesQuery q row
+passesQuery (Filter f q) cache row = do
+  r <- passesQuery q cache row
   case r of
     Nothing -> return Nothing
     Just (_, a)  -> if foldExpr f a
       then return (Just (Unknown, a))
       else return Nothing
-passesQuery (Sort cache label limit q) row = do
-  r <- passesQuery q row
+passesQuery (Sort cache label limit q) _ row = do
+  r <- passesQuery q cache row
   case r of
     Nothing -> return Nothing
     Just (_, a) -> do
       index <- updateCache cache label limit a
       return ((,a) <$> index)
+passesQuery (Join f ql qr) (QueryCache xs) row = do
+  let a = undefined
+      r = [ (a, b) | (_, b) <- xs, foldExpr f (a, b) ] -- works for eq only
+  return undefined
 
 --------------------------------------------------------------------------------
