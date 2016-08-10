@@ -22,29 +22,43 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
-data Expr r a where
-  Cnst :: Show a => a -> Expr r a
-  Sbst :: String -> Expr r a
-  Fld  :: Label r a -> Expr r a
-  Fld' :: String -> (r -> a) -> Expr r a
-  Fst  :: Show a => Label r a -> Expr (r, s) a
-  Fst'  :: Show a => Expr r a -> Expr (r, s) a
-  Snd  :: Show a => Label s a -> Expr (r, s) a
-  Snd'  :: Show a => Expr s a -> Expr (r, s) a
-  And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
-  Plus :: Expr r Int -> Expr r Int -> Expr r Int
+data Expr' l r a where
+  Cnst :: Show a => l -> a -> Expr r a
+  Sbst :: l -> String -> Expr r a
+  Fld  :: l -> Label r a -> Expr r a
+  Fld' :: l -> String -> (r -> a) -> Expr r a
+  Fst  :: Show a => l -> Label r a -> Expr (r, s) a
+  Fst' :: Show a => l -> Expr r a -> Expr (r, s) a
+  Snd  :: Show a => l -> Label s a -> Expr (r, s) a
+  Snd' :: Show a => l -> Expr s a -> Expr (r, s) a
+  And  :: l -> Expr r Bool -> Expr r Bool -> Expr r Bool
+  Grt  :: l -> Expr r Int -> Expr r Int -> Expr r Bool
+  Plus :: l -> Expr r Int -> Expr r Int -> Expr r Int
+
+cnst :: Show a => a -> Expr r a
+cnst = Cnst ()
+
+sbst = Sbst ()
+fld = Fld ()
+fld' = Fld' ()
+fst' = Fst' ()
+snd' = Snd' ()
+and = And ()
+grt = Grt ()
+plus = Plus ()
+
+type Expr = Expr' ()
 
 substFst :: Expr (l, r) a -> l -> Expr r a
-substFst (Cnst a) sub = Cnst a
-substFst (Fld a) sub = error "Invalid field access"
-substFst (Fst (Label _ get)) sub = Sbst (show $ get sub)
-substFst (Fst' f) sub = Sbst (show $ foldExpr f sub)
-substFst (Snd a) sub = Fld a
-substFst (Snd' f) sub = f
-substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
-substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
-substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
+substFst (Cnst _ a) sub = Cnst () a
+substFst (Fld _ a) sub = error "Invalid field access"
+substFst (Fst _ (Label _ get)) sub = Sbst () (show $ get sub)
+substFst (Fst' _ f) sub = Sbst () (show $ foldExpr f sub)
+substFst (Snd _ a) sub = Fld () a
+substFst (Snd' _ f) sub = f
+substFst (And _ ql qr) sub = And () (substFst ql sub) (substFst qr sub)
+substFst (Grt _ ql qr) sub = Grt () (substFst ql sub) (substFst qr sub)
+substFst (Plus _ ql qr) sub = Plus () (substFst ql sub) (substFst qr sub)
 
 tee :: Expr (Person, Person) Bool
 tee = Fst age `Grt` Snd age
