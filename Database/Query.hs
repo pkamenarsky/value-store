@@ -41,9 +41,7 @@ deriving instance Traversable (Expr' r a)
 type Expr r a = Expr' r a ()
 type LExpr r a = Expr' r a String
 
-type Var = State Int
-
-genVar :: Var String
+genVar :: State Int String
 genVar = do
   i <- get
   modify (+1)
@@ -55,17 +53,15 @@ labelExpr expr = evalState (traverse (const genVar) expr) 0
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-type Ctx = (String, String, String)
-
-foldExprSql :: Ctx -> LExpr r a -> String
-foldExprSql ctx (Cnst l a) = show a
-foldExprSql ctx (Sbst l a) = a
-foldExprSql (var, _, _) (Fld l name _) = var ++ "." ++ name
--- foldExprSql (_, fst, _) (Fst l (Label name _)) = fst ++ "." ++ name
--- foldExprSql (_, _, snd) (Snd l (Label name _)) = snd ++ "." ++ name
-foldExprSql ctx (And l a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
-foldExprSql ctx (Grt l a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
-foldExprSql ctx (Plus l a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
+foldExprSql :: LExpr r a -> String
+foldExprSql (Cnst _ a) = show a
+foldExprSql (Sbst _ a) = a
+foldExprSql (Fld l name _) = l ++ "." ++ name
+foldExprSql (Fst _ e) = foldExprSql e
+foldExprSql (Snd _ e) = foldExprSql e
+foldExprSql (And _ a b) = brackets $ foldExprSql a ++ " and " ++ foldExprSql b
+foldExprSql (Grt _ a b) = brackets $ foldExprSql a ++ " > " ++ foldExprSql b
+foldExprSql (Plus _ a b) = brackets $ foldExprSql a ++ " + " ++ foldExprSql b
 
 {-
 cnst :: Show a => a -> Expr r a
