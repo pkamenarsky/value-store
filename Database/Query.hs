@@ -44,21 +44,21 @@ genVar = do
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: LQuery b -> Expr r a -> String
-foldExprSql q (Cnst a) = show a
+foldExprSql :: Bool -> LQuery b -> Expr r a -> String
+foldExprSql rec q (Cnst a) = show a
 
-foldExprSql (Join l _ _ _) (Fld name _) = error "Fld on Join"
-foldExprSql q (Fld name _) = queryLabel q ++ "." ++ name
+foldExprSql rec (Join l _ _ _) (Fld name _) = error "Fld on Join"
+foldExprSql rec q (Fld name _) = if rec then "(" ++ queryLabel q ++ ")." ++ name else queryLabel q ++ "." ++ name
 
-foldExprSql (Join _ _ ql qr) (Fst e) = foldExprSql ql e
-foldExprSql _ (Fst e) = "Fst not on Join"
+foldExprSql rec (Join _ _ ql qr) (Fst e) = foldExprSql rec ql e
+foldExprSql rec _ (Fst e) = "Fst not on Join"
 
-foldExprSql (Join _ _ ql qr) (Snd e) = foldExprSql qr e
-foldExprSql _ (Snd e) = "Snd not on Join"
+foldExprSql rec (Join _ _ ql qr) (Snd e) = foldExprSql rec qr e
+foldExprSql rec _ (Snd e) = "Snd not on Join"
 
-foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
-foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
-foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
+foldExprSql rec q (And a b) = brackets $ foldExprSql rec q a ++ " and " ++ foldExprSql rec q b
+foldExprSql rec q (Grt a b) = brackets $ foldExprSql rec q a ++ " > " ++ foldExprSql rec q b
+foldExprSql rec q (Plus a b) = brackets $ foldExprSql rec q a ++ " + " ++ foldExprSql rec q b
 
 data QueryCache a = QueryCache [a]
 
@@ -143,11 +143,20 @@ te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
 
+-- select (pj).p1.*, (pj).p2.*
+--   from (select pj
+--           from (select p1, p2
+--                   from person as p1
+--                   inner join person as p2
+--                   on p1.name = p2.name) pj
+--           where (p1).age = 5) as pj2
+--   where (pj).p1.age = 7;
+
 foldQuerySql :: LQuery a -> String
 foldQuerySql (All _ (Row row)) = "select * from " ++ row
-foldQuerySql (Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql q f
+foldQuerySql (Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql True q f
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
-foldQuerySql qq@(Join _ f ql qr) = "select * from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
+foldQuerySql qq@(Join _ f ql qr) = "select " ++ queryLabel ql ++ ".*, " ++ queryLabel qr ++ ".* from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql False qq f
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
 qr = all (Row "person")
@@ -163,6 +172,7 @@ q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPer
 q2sql = foldQuerySql (labelQuery q2)
 
 {-
+
 subsql = substFst (Fst age `Grt` Snd age) (Person "asd" 6)
 subsqlSql = foldExprSql ("var", "fst", "snd") subsql
 
