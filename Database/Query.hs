@@ -48,12 +48,12 @@ foldExprSql :: Bool -> LQuery b -> Expr r a -> String
 foldExprSql rec q (Cnst a) = show a
 
 foldExprSql rec (Join l _ _ _) (Fld name _) = error "Fld on Join"
-foldExprSql rec q (Fld name _) = if rec then "(" ++ queryLabel q ++ ")." ++ name else queryLabel q ++ "." ++ name
+foldExprSql rec q (Fld name _) = name
 
-foldExprSql rec (Join _ _ ql qr) (Fst e) = foldExprSql rec ql e
+foldExprSql rec (Join _ _ ql qr) (Fst e) = (if rec then brackets (queryLabel ql) else (queryLabel ql)) ++ "." ++ foldExprSql False ql e
 foldExprSql rec _ (Fst e) = "Fst not on Join"
 
-foldExprSql rec (Join _ _ ql qr) (Snd e) = foldExprSql rec qr e
+foldExprSql rec (Join _ _ ql qr) (Snd e) = (if rec then brackets (queryLabel qr) else (queryLabel qr)) ++ "." ++ foldExprSql False qr e
 foldExprSql rec _ (Snd e) = "Snd not on Join"
 
 foldExprSql rec q (And a b) = brackets $ foldExprSql rec q a ++ " and " ++ foldExprSql rec q b
@@ -156,7 +156,7 @@ foldQuerySql :: LQuery a -> String
 foldQuerySql (All _ (Row row)) = "select * from " ++ row
 foldQuerySql (Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql True q f
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
-foldQuerySql qq@(Join _ f ql qr) = "select " ++ queryLabel ql ++ ".*, " ++ queryLabel qr ++ ".* from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql False qq f
+foldQuerySql qq@(Join _ f ql qr) = "select " ++ queryLabel ql ++ ", " ++ queryLabel qr ++ " from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql True qq f
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
 qr = all (Row "person")
