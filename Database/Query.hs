@@ -53,15 +53,28 @@ labelExpr expr = evalState (traverse (const genVar) expr) 0
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: LExpr r a -> String
-foldExprSql (Cnst _ a) = show a
-foldExprSql (Sbst _ a) = a
-foldExprSql (Fld l name _) = l ++ "." ++ name
-foldExprSql (Fst _ e) = foldExprSql e
-foldExprSql (Snd _ e) = foldExprSql e
-foldExprSql (And _ a b) = brackets $ foldExprSql a ++ " and " ++ foldExprSql b
-foldExprSql (Grt _ a b) = brackets $ foldExprSql a ++ " > " ++ foldExprSql b
-foldExprSql (Plus _ a b) = brackets $ foldExprSql a ++ " + " ++ foldExprSql b
+foldExprSql :: LQuery b -> LExpr r a -> String
+foldExprSql q (Cnst _ a) = show a
+foldExprSql q (Sbst _ a) = a
+
+foldExprSql (All l _) (Fld _ name _) = l ++ "." ++ name
+foldExprSql (Filter l _ _) (Fld _ name _) = l ++ "." ++ name
+foldExprSql (Sort l _ _ _ _) (Fld _ name _) = l ++ "." ++ name
+foldExprSql (Join l _ _ _) (Fld _ name _) = error "Fld on Join"
+
+foldExprSql (All _ _) (Fst _ e) = error "Fst on All"
+foldExprSql (Filter _ _ q) e@(Fst _ _) = foldExprSql q e
+foldExprSql (Sort _ _ _ _ q) e@(Fst _ _) = foldExprSql q e
+foldExprSql (Join _ _ ql qr) (Fst _ e) = foldExprSql ql e
+
+foldExprSql (All _ _) (Snd _ e) = error "Fst on All"
+foldExprSql (Filter _ _ q) e@(Snd _ _) = foldExprSql q e
+foldExprSql (Sort _ _ _ _ q) e@(Snd _ _) = foldExprSql q e
+foldExprSql (Join _ _ ql qr) (Snd _ e) = foldExprSql qr e
+
+foldExprSql q (And _ a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
+foldExprSql q (Grt _ a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
+foldExprSql q (Plus _ a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
 data QueryCache a = QueryCache [a]
 
