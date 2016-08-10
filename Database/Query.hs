@@ -1,5 +1,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 
 module Database.Query where
@@ -22,19 +24,27 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
-data Expr' l r a where
-  Cnst :: Show a => l -> a -> Expr r a
-  Sbst :: l -> String -> Expr r a
-  Fld  :: l -> Label r a -> Expr r a
-  Fld' :: l -> String -> (r -> a) -> Expr r a
-  Fst  :: Show a => l -> Label r a -> Expr (r, s) a
-  Fst' :: Show a => l -> Expr r a -> Expr (r, s) a
-  Snd  :: Show a => l -> Label s a -> Expr (r, s) a
-  Snd' :: Show a => l -> Expr s a -> Expr (r, s) a
-  And  :: l -> Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt  :: l -> Expr r Int -> Expr r Int -> Expr r Bool
-  Plus :: l -> Expr r Int -> Expr r Int -> Expr r Int
+data Expr' r a l where
+  Cnst :: Show a => l -> a -> Expr' r a l
+  Sbst :: l -> String -> Expr' r a l
+  Fld  :: l -> Label r a -> Expr' r a l
+  Fld' :: l -> String -> (r -> a) -> Expr' r a l
+  Fst  :: Show a => l -> Label r a -> Expr' (r, s) a l
+  Fst' :: Show a => l -> Expr' r a l -> Expr' (r, s) a l
+  Snd  :: Show a => l -> Label s a -> Expr' (r, s) a l
+  Snd' :: Show a => l -> Expr' s a l -> Expr' (r, s) a l
+  And  :: l -> Expr' r Bool l -> Expr' r Bool l -> Expr' r Bool l
+  Grt  :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Bool l
+  Plus :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Int l
 
+deriving instance Functor (Expr' r a)
+deriving instance Foldable (Expr' r a)
+deriving instance Traversable (Expr' r a)
+
+type Expr = Expr' ()
+type LExpr = Expr' String
+
+{-
 cnst :: Show a => a -> Expr r a
 cnst = Cnst ()
 
@@ -211,3 +221,4 @@ passesQuery (Join f ql qr) row = do
   return $ concat rs'
 
 --------------------------------------------------------------------------------
+-}
