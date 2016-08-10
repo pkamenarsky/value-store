@@ -83,17 +83,6 @@ labelQuery :: Query a -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 {-
-cnst :: Show a => a -> Expr r a
-cnst = Cnst ()
-
-sbst = Sbst ()
-fld = Fld ()
-fst' = Fst ()
-snd' = Snd ()
-and = And ()
-grt = Grt ()
-plus = Plus ()
-
 substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst _ a) sub = Cnst () a
 substFst (Fld _ a) sub = error "Invalid field access"
