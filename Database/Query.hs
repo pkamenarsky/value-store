@@ -1,5 +1,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 
 module Database.Query where
@@ -22,18 +24,23 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
-data Expr r a where
-  Cnst :: Show a => a -> Expr r a
-  Sbst :: String -> Expr r a
-  Fld  :: Label r a -> Expr r a
-  Fld' :: String -> (r -> a) -> Expr r a
-  Fst  :: Show a => Label r a -> Expr (r, s) a
-  Fst'  :: Show a => Expr r a -> Expr (r, s) a
-  Snd  :: Show a => Label s a -> Expr (r, s) a
-  Snd'  :: Show a => Expr s a -> Expr (r, s) a
-  And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
-  Plus :: Expr r Int -> Expr r Int -> Expr r Int
+data Expr' r a expr where
+  Cnst :: Show a => a -> Expr' r a expr
+  Sbst :: String -> Expr' r a expr
+  Fld  :: Label r a -> Expr' r a expr
+  Fld' :: String -> (r -> a) -> Expr' r a expr
+  Fst  :: Show a => Label r a -> Expr' (r, s) a expr
+  Fst' :: Show a => expr r a -> Expr' (r, s) a expr
+  Snd  :: Show a => Label s a -> Expr' (r, s) a expr
+  Snd' :: Show a => expr s a -> Expr' (r, s) a expr
+  And  :: expr r Bool -> expr r Bool -> Expr' r Bool expr
+  Grt  :: expr r Int -> expr r Int -> Expr' r Bool expr
+  Plus :: expr r Int -> expr r Int -> Expr' r Int expr
+
+newtype Expr r a = Expr (Expr' r a Expr)
+newtype LExpr r a = LExpr (String, Expr' r a LExpr)
+
+{-
 
 substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
@@ -197,3 +204,4 @@ passesQuery (Join f ql qr) row = do
   return $ concat rs'
 
 --------------------------------------------------------------------------------
+-}
