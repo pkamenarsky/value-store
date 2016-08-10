@@ -27,12 +27,9 @@ data Label r a =
 data Expr' r a l where
   Cnst :: Show a => l -> a -> Expr' r a l
   Sbst :: l -> String -> Expr' r a l
-  Fld  :: l -> Label r a -> Expr' r a l
-  Fld' :: l -> String -> (r -> a) -> Expr' r a l
-  Fst  :: Show a => l -> Label r a -> Expr' (r, s) a l
-  Fst' :: Show a => l -> Expr' r a l -> Expr' (r, s) a l
-  Snd  :: Show a => l -> Label s a -> Expr' (r, s) a l
-  Snd' :: Show a => l -> Expr' s a l -> Expr' (r, s) a l
+  Fld  :: l -> String -> (r -> a) -> Expr' r a l
+  Fst  :: Show a => l -> Expr' r a l -> Expr' (r, s) a l
+  Snd  :: Show a => l -> Expr' s a l -> Expr' (r, s) a l
   And  :: l -> Expr' r Bool l -> Expr' r Bool l -> Expr' r Bool l
   Grt  :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Bool l
   Plus :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Int l
@@ -41,8 +38,34 @@ deriving instance Functor (Expr' r a)
 deriving instance Foldable (Expr' r a)
 deriving instance Traversable (Expr' r a)
 
-type Expr = Expr' ()
-type LExpr = Expr' String
+type Expr r a = Expr' r a ()
+type LExpr r a = Expr' r a String
+
+type Var = State Int
+
+genVar :: Var String
+genVar = do
+  i <- get
+  modify (+1)
+  return $ "a" ++ show i
+
+labelExpr :: Expr r a -> LExpr r a
+labelExpr expr = evalState (traverse (const genVar) expr) 0
+
+brackets :: String -> String
+brackets str = "(" ++ str ++ ")"
+
+type Ctx = (String, String, String)
+
+foldExprSql :: Ctx -> LExpr r a -> String
+foldExprSql ctx (Cnst l a) = show a
+foldExprSql ctx (Sbst l a) = a
+foldExprSql (var, _, _) (Fld l name _) = var ++ "." ++ name
+-- foldExprSql (_, fst, _) (Fst l (Label name _)) = fst ++ "." ++ name
+-- foldExprSql (_, _, snd) (Snd l (Label name _)) = snd ++ "." ++ name
+foldExprSql ctx (And l a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
+foldExprSql ctx (Grt l a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
+foldExprSql ctx (Plus l a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
 {-
 cnst :: Show a => a -> Expr r a
@@ -50,14 +73,11 @@ cnst = Cnst ()
 
 sbst = Sbst ()
 fld = Fld ()
-fld' = Fld' ()
-fst' = Fst' ()
-snd' = Snd' ()
+fst' = Fst ()
+snd' = Snd ()
 and = And ()
 grt = Grt ()
 plus = Plus ()
-
-type Expr = Expr' ()
 
 substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst _ a) sub = Cnst () a
@@ -79,21 +99,6 @@ foldExpr (Fld (Label _ get)) = get
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
-
-brackets :: String -> String
-brackets str = "(" ++ str ++ ")"
-
-type Ctx = (String, String, String)
-
-foldExprSql :: Ctx -> Expr r a -> String
-foldExprSql ctx (Cnst a) = show a
-foldExprSql ctx (Sbst a) = a
-foldExprSql (var, _, _) (Fld (Label name _)) = var ++ "." ++ name
-foldExprSql (_, fst, _) (Fst (Label name _)) = fst ++ "." ++ name
-foldExprSql (_, _, snd) (Snd (Label name _)) = snd ++ "." ++ name
-foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
-foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
-foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
 --------------------------------------------------------------------------------
 
@@ -145,14 +150,6 @@ data Query a where
   Filter :: Expr a Bool -> Query a -> Query a
   Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
   Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
-
-type Var = State Int
-
-genVar :: Var String
-genVar = do
-  i <- get
-  modify (+1)
-  return $ "a" ++ show i
 
 retrieveSql :: Query a -> [a]
 retrieveSql = undefined
