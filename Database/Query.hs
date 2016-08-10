@@ -145,17 +145,22 @@ te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 foldQuerySql :: LQuery a -> String
 foldQuerySql (All _ (Row row)) = "select * from " ++ row
-foldQuerySql qq@(Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ l ++ " where " ++ foldExprSql qq f
-foldQuerySql qq@(Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ l ++ " order by " ++ l ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
+foldQuerySql (Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql q f
+foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 foldQuerySql qq@(Join _ f ql qr) = "select * from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
 
-ql = (filter (ageE `Grt` Cnst 6) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
+ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
 qr = all (Row "person")
 q1 = join (Fst ageE `Grt` Snd ageE) ql qr
 
-q1sql :: String
 q1sql = foldQuerySql (labelQuery q1)
 
+allPersons = all (Row "person")
+
+q2 :: Query ((Person, Person), Person)
+q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
+
+q2sql = foldQuerySql (labelQuery q2)
 
 {-
 subsql = substFst (Fst age `Grt` Snd age) (Person "asd" 6)
