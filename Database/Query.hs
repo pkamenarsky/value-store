@@ -67,7 +67,7 @@ foldExprSql (Filter _ _ q) e@(Fst _ _) = foldExprSql q e
 foldExprSql (Sort _ _ _ _ q) e@(Fst _ _) = foldExprSql q e
 foldExprSql (Join _ _ ql qr) (Fst _ e) = foldExprSql ql e
 
-foldExprSql (All _ _) (Snd _ e) = error "Fst on All"
+foldExprSql (All _ _) (Snd _ e) = error "Snd on All"
 foldExprSql (Filter _ _ q) e@(Snd _ _) = foldExprSql q e
 foldExprSql (Sort _ _ _ _ q) e@(Snd _ _) = foldExprSql q e
 foldExprSql (Join _ _ ql qr) (Snd _ e) = foldExprSql qr e
