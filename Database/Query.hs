@@ -82,24 +82,21 @@ deriving instance Traversable (Query' a)
 labelQuery :: Query a -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
-{-
 substFst :: Expr (l, r) a -> l -> Expr r a
-substFst (Cnst _ a) sub = Cnst () a
-substFst (Fld _ a) sub = error "Invalid field access"
-substFst (Fst _ (Label _ get)) sub = Sbst () (show $ get sub)
-substFst (Fst' _ f) sub = Sbst () (show $ foldExpr f sub)
-substFst (Snd _ a) sub = Fld () a
-substFst (Snd' _ f) sub = f
-substFst (And _ ql qr) sub = And () (substFst ql sub) (substFst qr sub)
-substFst (Grt _ ql qr) sub = Grt () (substFst ql sub) (substFst qr sub)
-substFst (Plus _ ql qr) sub = Plus () (substFst ql sub) (substFst qr sub)
+substFst (Cnst a) sub = Cnst a
+substFst (Fld _ _) sub = error "Invalid field access"
+substFst (Fst f) sub = Sbst (show $ foldExpr f sub)
+substFst (Snd f) sub = f
+substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
+substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
+substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 tee :: Expr (Person, Person) Bool
-tee = Fst age `Grt` Snd age
+tee = Fst ageE `Grt` Snd ageE
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
-foldExpr (Fld (Label _ get)) = get
+foldExpr (Fld _ get) = get
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
@@ -112,22 +109,20 @@ name :: Label Person String
 name = Label "name" _name
 
 nameE :: Expr Person String
-nameE = Fld name
+nameE = Fld "name" _name
 
 age :: Label Person Int
 age = Label "age" _age
 
 ageE :: Expr Person Int
-ageE = Fld age
-
-ageE' :: Expr Person Int
-ageE' = Fld' "age" _age
+ageE = Fld "age" _age
 
 expr :: Expr Person Bool
 expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
 
 te' :: Expr ((Person, Person), Person) Bool
-te' = (Fst' (Fst' ageE') `Grt` (Snd' ageE)) `And` (Fst' (Snd' ageE') `Grt` Cnst 6)
+te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
+{-
 
 --------------------------------------------------------------------------------
 
