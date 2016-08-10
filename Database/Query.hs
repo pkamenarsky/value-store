@@ -24,22 +24,15 @@ data Label r a =
     Label String (r -> a)
   | forall s. Compose (Label r s) (Label s a)
 
-data Expr' r a l where
-  Cnst :: Show a => l -> a -> Expr' r a l
-  Sbst :: l -> String -> Expr' r a l
-  Fld  :: l -> String -> (r -> a) -> Expr' r a l
-  Fst  :: Show a => l -> Expr' r a l -> Expr' (r, s) a l
-  Snd  :: Show a => l -> Expr' s a l -> Expr' (r, s) a l
-  And  :: l -> Expr' r Bool l -> Expr' r Bool l -> Expr' r Bool l
-  Grt  :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Bool l
-  Plus :: l -> Expr' r Int l -> Expr' r Int l -> Expr' r Int l
-
-deriving instance Functor (Expr' r a)
-deriving instance Foldable (Expr' r a)
-deriving instance Traversable (Expr' r a)
-
-type Expr r a = Expr' r a ()
-type LExpr r a = Expr' r a String
+data Expr r a where
+  Cnst :: Show a => a -> Expr r a
+  Sbst :: String -> Expr r a
+  Fld  :: String -> (r -> a) -> Expr r a
+  Fst  :: Show a => Expr r a -> Expr (r, s) a
+  Snd  :: Show a => Expr s a -> Expr (r, s) a
+  And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
+  Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
+  Plus :: Expr r Int -> Expr r Int -> Expr r Int
 
 genVar :: State Int String
 genVar = do
@@ -47,34 +40,27 @@ genVar = do
   modify (+1)
   return $ "a" ++ show i
 
-labelExpr :: Expr r a -> LExpr r a
-labelExpr expr = evalState (traverse (const genVar) expr) 0
-
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: LQuery b -> LExpr r a -> String
-foldExprSql q (Cnst _ a) = show a
-foldExprSql q (Sbst _ a) = a
+foldExprSql :: LQuery b -> Expr r a -> String
+foldExprSql q (Cnst a) = show a
+foldExprSql q (Sbst a) = a
 
-foldExprSql (All l _) (Fld _ name _) = l ++ "." ++ name
-foldExprSql (Filter l _ _) (Fld _ name _) = l ++ "." ++ name
-foldExprSql (Sort l _ _ _ _) (Fld _ name _) = l ++ "." ++ name
-foldExprSql (Join l _ _ _) (Fld _ name _) = error "Fld on Join"
+foldExprSql (All l _) (Fld name _) = l ++ "." ++ name
+foldExprSql (Filter l _ _) (Fld name _) = l ++ "." ++ name
+foldExprSql (Sort l _ _ _ _) (Fld name _) = l ++ "." ++ name
+foldExprSql (Join l _ _ _) (Fld name _) = error "Fld on Join"
 
-foldExprSql (All _ _) (Fst _ e) = error "Fst on All"
-foldExprSql (Filter _ _ q) e@(Fst _ _) = foldExprSql q e
-foldExprSql (Sort _ _ _ _ q) e@(Fst _ _) = foldExprSql q e
-foldExprSql (Join _ _ ql qr) (Fst _ e) = foldExprSql ql e
+foldExprSql (Join _ _ ql qr) (Fst e) = foldExprSql ql e
+foldExprSql _ (Fst e) = "Fst not on Join"
 
-foldExprSql (All _ _) (Snd _ e) = error "Snd on All"
-foldExprSql (Filter _ _ q) e@(Snd _ _) = foldExprSql q e
-foldExprSql (Sort _ _ _ _ q) e@(Snd _ _) = foldExprSql q e
-foldExprSql (Join _ _ ql qr) (Snd _ e) = foldExprSql qr e
+foldExprSql (Join _ _ ql qr) (Snd e) = foldExprSql qr e
+foldExprSql _ (Snd e) = "Snd not on Join"
 
-foldExprSql q (And _ a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
-foldExprSql q (Grt _ a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
-foldExprSql q (Plus _ a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
+foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
+foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
+foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
 data QueryCache a = QueryCache [a]
 
