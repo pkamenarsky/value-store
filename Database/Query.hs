@@ -22,11 +22,10 @@ insertBy' cmp x ys@(y:ys') i
 
 data Label r a =
     Label String (r -> a)
-  | forall s. Compose (Label r s) (Label s a)
+  -- | forall s. Compose (Label r s) (Label s a)
 
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
-  Sbst :: String -> Expr r a
   Fld  :: String -> (r -> a) -> Expr r a
   Fst  :: Show a => Expr r a -> Expr (r, s) a
   Snd  :: Show a => Expr s a -> Expr (r, s) a
@@ -45,7 +44,6 @@ brackets str = "(" ++ str ++ ")"
 
 foldExprSql :: LQuery b -> Expr r a -> String
 foldExprSql q (Cnst a) = show a
-foldExprSql q (Sbst a) = a
 
 foldExprSql (All l _) (Fld name _) = l ++ "." ++ name
 foldExprSql (Filter l _ _) (Fld name _) = l ++ "." ++ name
@@ -75,6 +73,12 @@ data Query' a l where
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
+queryLabel :: Query' a l -> l
+queryLabel (All l _) = l
+queryLabel (Filter l _ _) = l
+queryLabel (Sort l _ _ _ _) = l
+queryLabel (Join l _ _ _) = l
+
 deriving instance Functor (Query' a)
 deriving instance Foldable (Query' a)
 deriving instance Traversable (Query' a)
@@ -85,7 +89,7 @@ labelQuery expr = evalState (traverse (const genVar) expr) 0
 substFst :: Expr (l, r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
-substFst (Fst f) sub = Sbst (show $ foldExpr f sub)
+substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
@@ -97,6 +101,8 @@ tee = Fst ageE `Grt` Snd ageE
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
 foldExpr (Fld _ get) = get
+foldExpr (Fst f) = \(r, _) -> foldExpr f r
+foldExpr (Snd f) = \(_, r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
@@ -122,9 +128,16 @@ expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
 
 te' :: Expr ((Person, Person), Person) Bool
 te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
-{-
 
 --------------------------------------------------------------------------------
+
+foldQuerySql :: LQuery a -> String
+foldQuerySql (All _ (Row row)) = "select * from " ++ row
+foldQuerySql qq@(Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ l ++ " where " ++ foldExprSql qq f
+foldQuerySql qq@(Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ l ++ " order by " ++ l ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
+foldQuerySql qq@(Join _ f ql qr) = "select * from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
+
+{-
 
 {-
 data Limit a = forall r. Ord r => Limit (Label a r) Int | NoLimit
@@ -144,23 +157,6 @@ triggersQuery (Query xs flr limit) x
 
 retrieveSql :: Query a -> [a]
 retrieveSql = undefined
-
-foldQuerySql :: Query a -> Var String
-foldQuerySql (All (Row row)) = return $ "select * from " ++ row
-foldQuerySql (Filter f q) = do
-  var <- genVar
-  fq <- foldQuerySql q
-  return $ "select * from (" ++ fq ++ ") " ++ var ++ " where " ++ foldExprSql (var, "fst", "snd") f
-foldQuerySql (Sort _ (Label label _) limit q) = do
-  var <- genVar
-  fq <- foldQuerySql q
-  return $ "select * from (" ++ fq ++ ") " ++ var ++ " order by " ++ var ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
-foldQuerySql (Join f ql qr) = do
-  varl <- genVar
-  varr <- genVar
-  fql <- foldQuerySql ql
-  fqr <- foldQuerySql qr
-  return $ "select * from (" ++ fql ++ ") " ++ varl ++ " inner join (" ++ fqr ++") " ++ varr ++ " on " ++ foldExprSql ("var", varl, varr) f
 
 ql = (Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person"))
 qr = All (Row "person")
