@@ -63,6 +63,26 @@ foldExprSql (And _ a b) = brackets $ foldExprSql a ++ " and " ++ foldExprSql b
 foldExprSql (Grt _ a b) = brackets $ foldExprSql a ++ " > " ++ foldExprSql b
 foldExprSql (Plus _ a b) = brackets $ foldExprSql a ++ " + " ++ foldExprSql b
 
+data QueryCache a = QueryCache [a]
+
+data Row = Row String
+
+data Query' a l where
+  All    :: l -> Row -> Query' a l
+  Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
+  Sort   :: Ord b => l -> QueryCache a -> Label a b -> Maybe Int -> Query' a l -> Query' a l
+  Join   :: l -> Expr (a, b) Bool -> Query' a l -> Query' b l -> Query' (a, b) l
+
+type Query a = Query' a ()
+type LQuery a = Query' a String
+
+deriving instance Functor (Query' a)
+deriving instance Foldable (Query' a)
+deriving instance Traversable (Query' a)
+
+labelQuery :: Query a -> LQuery a
+labelQuery expr = evalState (traverse (const genVar) expr) 0
+
 {-
 cnst :: Show a => a -> Expr r a
 cnst = Cnst ()
@@ -139,14 +159,6 @@ triggersQuery (Query xs flr limit) x
       else Nothing
 -}
 
-data QueryCache a = QueryCache [a]
-
-data Query a where
-  All    :: Row -> Query a
-  Filter :: Expr a Bool -> Query a -> Query a
-  Sort   :: Ord b => QueryCache a -> Label a b -> Maybe Int -> Query a -> Query a
-  Join   :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
-
 retrieveSql :: Query a -> [a]
 retrieveSql = undefined
 
@@ -178,8 +190,6 @@ q1sql :: String
 q1sql = evalState (foldQuerySql q1) 0
 
 data Index a = Unknown | Index Int
-
-data Row = Row String
 
 fromRow :: Row -> Maybe a
 fromRow = undefined
