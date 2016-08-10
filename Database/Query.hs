@@ -6,10 +6,12 @@
 
 module Database.Query where
 
-import Control.Monad.State
+import Control.Monad.State hiding (join)
 
 import Data.Maybe
 import Data.Ord
+
+import Prelude hiding (filter, sort, all, join)
 
 insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
 insertBy' _   x [] i = (i, [x])
@@ -45,10 +47,8 @@ brackets str = "(" ++ str ++ ")"
 foldExprSql :: LQuery b -> Expr r a -> String
 foldExprSql q (Cnst a) = show a
 
-foldExprSql (All l _) (Fld name _) = l ++ "." ++ name
-foldExprSql (Filter l _ _) (Fld name _) = l ++ "." ++ name
-foldExprSql (Sort l _ _ _ _) (Fld name _) = l ++ "." ++ name
 foldExprSql (Join l _ _ _) (Fld name _) = error "Fld on Join"
+foldExprSql q (Fld name _) = queryLabel q ++ "." ++ name
 
 foldExprSql (Join _ _ ql qr) (Fst e) = foldExprSql ql e
 foldExprSql _ (Fst e) = "Fst not on Join"
@@ -72,6 +72,18 @@ data Query' a l where
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
+
+all :: Row -> Query a
+all = All ()
+
+filter :: Expr a Bool -> Query a -> Query a
+filter = Filter ()
+
+sort :: Ord b => Label a b -> Maybe Int -> Query a -> Query a
+sort = Sort () (QueryCache [])
+
+join :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
+join = Join ()
 
 queryLabel :: Query' a l -> l
 queryLabel (All l _) = l
@@ -137,7 +149,18 @@ foldQuerySql qq@(Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ 
 foldQuerySql qq@(Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ l ++ " order by " ++ l ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 foldQuerySql qq@(Join _ f ql qr) = "select * from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
 
+ql = (filter (ageE `Grt` Cnst 6) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
+qr = all (Row "person")
+q1 = join (Fst ageE `Grt` Snd ageE) ql qr
+
+q1sql :: String
+q1sql = foldQuerySql (labelQuery q1)
+
+
 {-
+subsql = substFst (Fst age `Grt` Snd age) (Person "asd" 6)
+subsqlSql = foldExprSql ("var", "fst", "snd") subsql
+
 
 {-
 data Limit a = forall r. Ord r => Limit (Label a r) Int | NoLimit
@@ -157,16 +180,6 @@ triggersQuery (Query xs flr limit) x
 
 retrieveSql :: Query a -> [a]
 retrieveSql = undefined
-
-ql = (Filter (ageE `Grt` Cnst 6) $ Sort undefined name (Just 10) $ Filter (ageE `Grt` Cnst 6) $ All (Row "person"))
-qr = All (Row "person")
-q1 = Join (Fst age `Grt` Snd age) ql qr
-
-subsql = substFst (Fst age `Grt` Snd age) (Person "asd" 6)
-subsqlSql = foldExprSql ("var", "fst", "snd") subsql
-
-q1sql :: String
-q1sql = evalState (foldQuerySql q1) 0
 
 data Index a = Unknown | Index Int
 
