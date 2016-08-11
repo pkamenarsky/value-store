@@ -16,6 +16,8 @@ import Data.Tree
 
 import Prelude hiding (filter, sort, all, join)
 
+import Debug.Trace
+
 insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
 insertBy' _   x [] i = (i, [x])
 insertBy' cmp x ys@(y:ys') i
@@ -178,10 +180,15 @@ foldQuerySql (Join l f ql qr) =
   )
   where (ql', colsl) = foldQuerySql ql
         (qr', colsr) = foldQuerySql qr
-        ctx' = Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ++ rootLabel colsr ]
+        ctx' = {- (\x -> trace ("\n" ++ drawTree (fmap show x) ++ "\n") x) $ -} Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ++ rootLabel colsr ]
+                    [ fmap (map (\(a, c) -> (Just $ maybe l (\a -> l ++ "_" ++ a) a, c))) colsl
+                    , fmap (map (\(a, c) -> (Just $ maybe l (\a -> l ++ "_" ++ a) a, c))) colsr
+                    ]
+                    {-
                     [ colsl
                     , colsr
                     ]
+                    -}
 {-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
@@ -202,7 +209,7 @@ allPersons = all (Row "person" ["name", "age"])
 simplejoin = join (Fst ageE `Grt` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
-simple = filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
+simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
 {-
