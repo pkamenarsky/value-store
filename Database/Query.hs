@@ -69,12 +69,14 @@ foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q
 foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
 foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
-foldExprSql' :: Tree [(String, String)] -> Expr r a -> String
+foldExprSql' :: Tree [(Maybe String, String)] -> Expr r a -> String
 foldExprSql' ctx (Cnst a) = show a
 foldExprSql' ctx (Fld name _) =
   case [ var | var <- rootLabel ctx, name == snd var ] of
-    [(alias, var)] -> alias ++ "_" ++ var
-    [] -> error "No such var"
+    [(Just alias, var)] -> alias ++ "_" ++ var
+    [(Nothing, var)]    -> var
+    []                  -> error "No such var"
+    _                   -> error "More than one var"
 foldExprSql' ctx (And a b) = brackets $ foldExprSql' ctx a ++ " and " ++ foldExprSql' ctx b
 foldExprSql' ctx (Grt a b) = brackets $ foldExprSql' ctx a ++ " > " ++ foldExprSql' ctx b
 foldExprSql' ctx (Plus a b) = brackets $ foldExprSql' ctx a ++ " + " ++ foldExprSql' ctx b
@@ -177,8 +179,8 @@ foldQuerySql (All l (Row row cols)) =
   ( "select " ++ aliasColumns l [ (Nothing, col) | col <- cols ] ++ " from " ++ row
   , [ (Just l, col) | col <- cols ]
   )
-foldQuerySql qq@(Filter l f q) =
-  ( "select " ++ aliasColumns l cols ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql qq f
+foldQuerySql (Filter l f q) =
+  ( "select " ++ aliasColumns l cols ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql' (Node cols []) f
   , [ (Just (l ++ "_" ++ queryLabel q), col) | (_, col) <- cols ]
   )
   where (q', cols) = foldQuerySql q
