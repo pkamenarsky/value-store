@@ -53,22 +53,6 @@ genVar = do
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: LQuery b -> Expr r a -> String
-foldExprSql q (Cnst a) = show a
-
-foldExprSql (Join l _ _ _) (Fld name _) = error "Fld on Join"
-foldExprSql q (Fld name _) = queryLabel q ++ "_" ++ name
-
-foldExprSql (Join _ _ ql qr) (Fst e) = queryLabel ql ++ "_" ++ foldExprSql ql e
-foldExprSql _ (Fst e) = "Fst not on Join"
-
-foldExprSql (Join _ _ ql qr) (Snd e) = queryLabel qr ++ "_" ++ foldExprSql qr e
-foldExprSql _ (Snd e) = "Snd not on Join"
-
-foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
-foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
-foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
-
 type Ctx = Tree [(Maybe String, String)]
 
 foldExprSql' :: Ctx -> Expr r a -> String
@@ -195,7 +179,9 @@ foldQuerySql (Join l f ql qr) =
   where (ql', colsl) = foldQuerySql ql
         (qr', colsr) = foldQuerySql qr
         ctx' = Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ++ rootLabel colsr ]
-                    [colsl, colsr]
+                    [ colsl
+                    , colsr
+                    ]
 {-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
