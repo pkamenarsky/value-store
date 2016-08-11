@@ -79,6 +79,8 @@ foldExprSql' ctx (Fld name _) =
     [(Nothing, var)]    -> var
     []                  -> error "No such var"
     _                   -> error "More than one var"
+foldExprSql' ctx (Fst q) = foldExprSql' (head $ subForest ctx) q
+foldExprSql' ctx (Snd q) = foldExprSql' (last $ subForest ctx) q
 foldExprSql' ctx (And a b) = brackets $ foldExprSql' ctx a ++ " and " ++ foldExprSql' ctx b
 foldExprSql' ctx (Grt a b) = brackets $ foldExprSql' ctx a ++ " > " ++ foldExprSql' ctx b
 foldExprSql' ctx (Plus a b) = brackets $ foldExprSql' ctx a ++ " + " ++ foldExprSql' ctx b
@@ -187,14 +189,15 @@ foldQuerySql (Filter l f q) =
   )
   where (q', ctx) = foldQuerySql q
 foldQuerySql (Join l f ql qr) =
-  ( "select " ++ aliasColumns l colsl ++ ", " ++ aliasColumns l colsr ++ " from (" ++ ql' ++ ") " ++ queryLabel ql ++ " inner join (" ++ qr' ++") " ++ queryLabel qr ++ " on " ++ foldExprSql undefined f
-  ,  Node []
-      [ Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ] [colsl]
-      , Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsr ] [colsr]
-      ]
+  ( "select " ++ aliasColumns l colsl ++ ", " ++ aliasColumns l colsr ++ " from (" ++ ql' ++ ") " ++ queryLabel ql ++ " inner join (" ++ qr' ++") " ++ queryLabel qr ++ " on " ++ foldExprSql' ctx' f
+  , ctx'
   )
   where (ql', colsl) = foldQuerySql ql
         (qr', colsr) = foldQuerySql qr
+        ctx' =  Node []
+          [ Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ] [colsl]
+          , Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsr ] [colsr]
+          ]
 {-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
