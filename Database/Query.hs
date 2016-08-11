@@ -197,12 +197,13 @@ foldQuerySql (Join l f ql qr) =
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
 qr = all (Row "person" ["name", "age"])
-q1 = join (Fst ageE `Grt` Snd ageE) ql qr
+-- q1 :: _
+q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
 
 q1sql = fst $ foldQuerySql (labelQuery q1)
 
-q2 :: Query ((Person, Person), Person)
-q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
+-- q2 :: _ -- Query ((Person, Person), Person)
+q2 = join (Fst (Fst ageE) `Grt` Fst (Snd ageE)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
 
 q2sql = fst $ foldQuerySql (labelQuery q2)
 
