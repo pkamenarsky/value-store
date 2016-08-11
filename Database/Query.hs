@@ -28,6 +28,11 @@ insertBy' cmp x ys@(y:ys') i
 
 --------------------------------------------------------------------------------
 
+-- NOTE: if we need to restrict the type of certain subexpressions, add a
+-- phantom type, i.e.
+-- data Expr tp r a where
+--   Fld  :: String -> (r -> a) -> Expr Field r a
+
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Fld  :: String -> (r -> a) -> Expr r a
