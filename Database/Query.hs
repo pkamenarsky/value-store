@@ -26,6 +26,7 @@ insertBy' cmp x ys@(y:ys') i
 data Label r a =
     Label String (r -> a)
   -- | forall s. Compose (Label r s) (Label s a)
+    deriving Show
 
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
@@ -35,6 +36,11 @@ data Expr r a where
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
+
+instance Show (a -> b) where
+  show _ = "(a -> b)"
+
+deriving instance Show (Expr r a)
 
 genVar :: State Int String
 genVar = do
@@ -61,15 +67,17 @@ foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q
 foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
 foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
-data QueryCache a = QueryCache [a]
+data QueryCache a = QueryCache [a] deriving Show
 
-data Row = Row String [String]
+data Row = Row String [String] deriving Show
 
 data Query' a l where
   All    :: l -> Row -> Query' a l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
   Sort   :: Ord b => l -> QueryCache a -> Label a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: l -> Expr (a, b) Bool -> Query' a l -> Query' b l -> Query' (a, b) l
+  Join   :: (Show a, Show b) => l -> Expr (a, b) Bool -> Query' a l -> Query' b l -> Query' (a, b) l
+
+deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
@@ -83,7 +91,7 @@ filter = Filter ()
 sort :: Ord b => Label a b -> Maybe Int -> Query a -> Query a
 sort = Sort () (QueryCache [])
 
-join :: Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
+join :: (Show a, Show b) => Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -122,7 +130,7 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
 
-data Person = Person { _name :: String, _age :: Int }
+data Person = Person { _name :: String, _age :: Int } deriving Show
 
 name :: Label Person String
 name = Label "name" _name
@@ -158,8 +166,8 @@ foldQuerySql (All l (Row row cols)) =
   , [ (Just l, col) | col <- cols ]
   )
 foldQuerySql (Filter l f q) =
-  ( "select * from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql q f
-  , []
+  ( "select " ++ aliasColumns l cols ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql q f
+  , [ (Just l, col) | (_, col) <- cols ]
   )
   where (q', cols) = foldQuerySql q
 {-
@@ -172,13 +180,16 @@ q1 = join (Fst ageE `Grt` Snd ageE) ql qr
 
 q1sql = foldQuerySql (labelQuery q1)
 
-allPersons = all (Row "person" ["name", "age"])
-
 q2 :: Query ((Person, Person), Person)
 q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
 
 q2sql = foldQuerySql (labelQuery q2)
 -}
+
+allPersons = all (Row "person" ["name", "age"])
+
+simple = filter (ageE `Grt` Cnst 6) allPersons
+simplesql = fst $ foldQuerySql (labelQuery simple)
 
 {-
 
