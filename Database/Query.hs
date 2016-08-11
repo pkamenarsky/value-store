@@ -9,6 +9,7 @@ module Database.Query where
 import Control.Monad.State hiding (join)
 
 import Data.Maybe
+import Data.List                  (intersperse)
 import Data.Ord
 
 import Prelude hiding (filter, sort, all, join)
@@ -44,25 +45,25 @@ genVar = do
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-foldExprSql :: Bool -> LQuery b -> Expr r a -> String
-foldExprSql rec q (Cnst a) = show a
+foldExprSql :: LQuery b -> Expr r a -> String
+foldExprSql q (Cnst a) = show a
 
-foldExprSql rec (Join l _ _ _) (Fld name _) = error "Fld on Join"
-foldExprSql rec q (Fld name _) = name
+foldExprSql (Join l _ _ _) (Fld name _) = error "Fld on Join"
+foldExprSql q (Fld name _) = queryLabel q ++ "_" ++ name
 
-foldExprSql rec (Join _ _ ql qr) (Fst e) = (if rec then brackets (queryLabel ql) else (queryLabel ql)) ++ "." ++ foldExprSql False ql e
-foldExprSql rec _ (Fst e) = "Fst not on Join"
+foldExprSql (Join _ _ ql qr) (Fst e) = queryLabel ql ++ "_" ++ foldExprSql ql e
+foldExprSql _ (Fst e) = "Fst not on Join"
 
-foldExprSql rec (Join _ _ ql qr) (Snd e) = (if rec then brackets (queryLabel qr) else (queryLabel qr)) ++ "." ++ foldExprSql False qr e
-foldExprSql rec _ (Snd e) = "Snd not on Join"
+foldExprSql (Join _ _ ql qr) (Snd e) = queryLabel qr ++ "_" ++ foldExprSql qr e
+foldExprSql _ (Snd e) = "Snd not on Join"
 
-foldExprSql rec q (And a b) = brackets $ foldExprSql rec q a ++ " and " ++ foldExprSql rec q b
-foldExprSql rec q (Grt a b) = brackets $ foldExprSql rec q a ++ " > " ++ foldExprSql rec q b
-foldExprSql rec q (Plus a b) = brackets $ foldExprSql rec q a ++ " + " ++ foldExprSql rec q b
+foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q b
+foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
+foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
 data QueryCache a = QueryCache [a]
 
-data Row = Row String
+data Row = Row String [String]
 
 data Query' a l where
   All    :: l -> Row -> Query' a l
@@ -143,33 +144,41 @@ te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
 
--- select (pj).p1.*, (pj).p2.*
---   from (select pj
---           from (select p1, p2
---                   from person as p1
---                   inner join person as p2
---                   on p1.name = p2.name) pj
---           where (p1).age = 5) as pj2
---   where (pj).p1.age = 7;
+aliasColumns :: String -> [(Maybe String, String)] -> String
+aliasColumns alias cols = concat $ intersperse ", "
+  [ case calias of
+      Just calias' -> calias' ++ "." ++ calias' ++ "_" ++ col ++ " as " ++ alias ++ "_" ++ col
+      Nothing      -> col ++ " as " ++ alias ++ "_" ++ col
+  | (calias, col) <- cols
+  ]
 
-foldQuerySql :: LQuery a -> String
-foldQuerySql (All _ (Row row)) = "select * from " ++ row
-foldQuerySql (Filter l f q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql True q f
+foldQuerySql :: LQuery a -> (String, [(Maybe String, String)])
+foldQuerySql (All l (Row row cols)) =
+  ( "select " ++ aliasColumns l [ (Nothing, col) | col <- cols ] ++ " from " ++ row
+  , [ (Just l, col) | col <- cols ]
+  )
+foldQuerySql (Filter l f q) =
+  ( "select * from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql q f
+  , []
+  )
+  where (q', cols) = foldQuerySql q
+{-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 foldQuerySql qq@(Join _ f ql qr) = "select " ++ queryLabel ql ++ ", " ++ queryLabel qr ++ " from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql True qq f
 
-ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person"))
-qr = all (Row "person")
+ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
+qr = all (Row "person" ["name", "age"])
 q1 = join (Fst ageE `Grt` Snd ageE) ql qr
 
 q1sql = foldQuerySql (labelQuery q1)
 
-allPersons = all (Row "person")
+allPersons = all (Row "person" ["name", "age"])
 
 q2 :: Query ((Person, Person), Person)
 q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
 
 q2sql = foldQuerySql (labelQuery q2)
+-}
 
 {-
 
