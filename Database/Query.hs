@@ -170,9 +170,15 @@ foldQuerySql (Filter l f q) =
   , [ (Just l, col) | (_, col) <- cols ]
   )
   where (q', cols) = foldQuerySql q
+foldQuerySql qq@(Join l f ql qr) = 
+  ( "select " ++ aliasColumns l colsl ++ ", " ++ aliasColumns l colsr ++ " from (" ++ ql' ++ ") " ++ queryLabel ql ++ " inner join (" ++ qr' ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
+  ,  [ (Just l, col) | (_, col) <- colsl ]
+  ++ [ (Just l, col) | (_, col) <- colsr ]
+  )
+  where (ql', colsl) = foldQuerySql ql
+        (qr', colsr) = foldQuerySql qr
 {-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
-foldQuerySql qq@(Join _ f ql qr) = "select " ++ queryLabel ql ++ ", " ++ queryLabel qr ++ " from (" ++ foldQuerySql ql ++ ") " ++ queryLabel ql ++ " inner join (" ++ foldQuerySql qr ++") " ++ queryLabel qr ++ " on " ++ foldExprSql True qq f
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
 qr = all (Row "person" ["name", "age"])
@@ -188,7 +194,7 @@ q2sql = foldQuerySql (labelQuery q2)
 
 allPersons = all (Row "person" ["name", "age"])
 
-simple = filter (ageE `Grt` Cnst 6) allPersons
+simple = join (Fst ageE `Grt` Snd ageE) allPersons (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
 {-
