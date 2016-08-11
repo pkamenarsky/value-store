@@ -257,6 +257,10 @@ updateCache = undefined
 requestFromDb :: String -> IO [a]
 requestFromDb = undefined
 
+-- TODO: return sort path, not index
+-- we will also need to make Fst/Snd/Fld a separated datatype (Path?)
+-- and have an Expr constructor taking a Path
+
 passesQuery :: Query a -> Row -> IO [(Index a, a)]
 passesQuery (All _ (Row _ r')) row@(Row _ r) = if r == r'
   then case fromRow row of
