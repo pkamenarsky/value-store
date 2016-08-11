@@ -222,6 +222,8 @@ allPersons = all (Row "person" ["name", "age"])
 simplejoin = join (Fst ageE `Grt` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
+simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
+
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
@@ -243,9 +245,6 @@ triggersQuery (Query xs flr limit) x
       else Nothing
 -}
 -}
-
-retrieveSql :: Query a -> [a]
-retrieveSql = undefined
 
 data Index a = Unknown | Index Int
 
