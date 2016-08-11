@@ -69,7 +69,9 @@ foldExprSql q (And a b) = brackets $ foldExprSql q a ++ " and " ++ foldExprSql q
 foldExprSql q (Grt a b) = brackets $ foldExprSql q a ++ " > " ++ foldExprSql q b
 foldExprSql q (Plus a b) = brackets $ foldExprSql q a ++ " + " ++ foldExprSql q b
 
-foldExprSql' :: Tree [(Maybe String, String)] -> Expr r a -> String
+type Ctx = Tree [(Maybe String, String)]
+
+foldExprSql' :: Ctx -> Expr r a -> String
 foldExprSql' ctx (Cnst a) = show a
 foldExprSql' ctx (Fld name _) =
   case [ var | var <- rootLabel ctx, name == snd var ] of
@@ -166,24 +168,25 @@ te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
 
-aliasColumns :: String -> [(Maybe String, String)] -> String
-aliasColumns alias cols = concat $ intersperse ", "
+aliasColumns :: String -> Ctx -> String
+aliasColumns alias ctx = concat $ intersperse ", "
   [ case calias of
       Just calias' -> {- calias' ++ "." ++ -} calias' ++ "_" ++ col ++ " as " ++ alias ++ "_" ++ calias' ++ "_" ++ col
       Nothing      -> col ++ " as " ++ alias ++ "_" ++ col
-  | (calias, col) <- cols
+  | (calias, col) <- rootLabel ctx
   ]
 
-foldQuerySql :: LQuery a -> (String, [(Maybe String, String)])
-foldQuerySql (All l (Row row cols)) =
-  ( "select " ++ aliasColumns l [ (Nothing, col) | col <- cols ] ++ " from " ++ row
-  , [ (Just l, col) | col <- cols ]
+foldQuerySql :: LQuery a -> (String, Ctx)
+foldQuerySql (All l (Row row ctx)) =
+  ( "select " ++ aliasColumns l (Node [ (Nothing, col) | col <- ctx ] []) ++ " from " ++ row
+  , Node [ (Just l, col) | col <- ctx ] []
   )
 foldQuerySql (Filter l f q) =
-  ( "select " ++ aliasColumns l cols ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql' (Node cols []) f
-  , [ (Just (l ++ "_" ++ queryLabel q), col) | (_, col) <- cols ]
+  ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " where " ++ foldExprSql' ctx f
+  , Node [ (Just (l ++ "_" ++ queryLabel q), col) | (_, col) <- rootLabel ctx ] []
   )
-  where (q', cols) = foldQuerySql q
+  where (q', ctx) = foldQuerySql q
+{-
 foldQuerySql qq@(Join l f ql qr) = 
   ( "select " ++ aliasColumns l colsl ++ ", " ++ aliasColumns l colsr ++ " from (" ++ ql' ++ ") " ++ queryLabel ql ++ " inner join (" ++ qr' ++") " ++ queryLabel qr ++ " on " ++ foldExprSql qq f
   ,  [ (Just l, col) | (_, col) <- colsl ]
@@ -191,7 +194,6 @@ foldQuerySql qq@(Join l f ql qr) =
   )
   where (ql', colsl) = foldQuerySql ql
         (qr', colsr) = foldQuerySql qr
-{-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
