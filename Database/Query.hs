@@ -194,10 +194,8 @@ foldQuerySql (Join l f ql qr) =
   )
   where (ql', colsl) = foldQuerySql ql
         (qr', colsr) = foldQuerySql qr
-        ctx' =  Node []
-          [ Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ] [colsl]
-          , Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsr ] [colsr]
-          ]
+        ctx' = Node [ (Just $ maybe l (\alias -> l ++ "_" ++ alias) alias, col) | (alias, col) <- rootLabel colsl ++ rootLabel colsr ]
+                    [colsl, colsr]
 {-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
@@ -206,14 +204,17 @@ qr = all (Row "person" ["name", "age"])
 q1 = join (Fst ageE `Grt` Snd ageE) ql qr
 
 q1sql = foldQuerySql (labelQuery q1)
+-}
 
 q2 :: Query ((Person, Person), Person)
 q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
 
-q2sql = foldQuerySql (labelQuery q2)
--}
+q2sql = fst $ foldQuerySql (labelQuery q2)
 
 allPersons = all (Row "person" ["name", "age"])
+
+simplejoin = join (Fst ageE `Grt` Snd ageE) allPersons allPersons
+simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 simple = filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
