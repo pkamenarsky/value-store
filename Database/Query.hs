@@ -28,11 +28,6 @@ insertBy' cmp x ys@(y:ys') i
 
 --------------------------------------------------------------------------------
 
-data Label r a =
-    Label String (r -> a)
-  -- | forall s. Compose (Label r s) (Label s a)
-    deriving Show
-
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Fld  :: String -> (r -> a) -> Expr r a
@@ -84,7 +79,7 @@ data Row = Row String [String] deriving Show
 data Query' a l where
   All    :: l -> Row -> Query' a l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: Ord b => l -> QueryCache a -> Label a b -> Maybe Int -> Query' a l -> Query' a l
+  Sort   :: Ord b => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
   Join   :: (Show a, Show b) => l -> Expr (a, b) Bool -> Query' a l -> Query' b l -> Query' (a, b) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -98,7 +93,7 @@ all = All ()
 filter :: Expr a Bool -> Query a -> Query a
 filter = Filter ()
 
-sort :: Ord b => Label a b -> Maybe Int -> Query a -> Query a
+sort :: Ord b => Expr a b -> Maybe Int -> Query a -> Query a
 sort = Sort () (QueryCache [])
 
 join :: (Show a, Show b) => Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
@@ -151,14 +146,8 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int } deriving Show
 
-name :: Label Person String
-name = Label "name" _name
-
 nameE :: Expr Person String
 nameE = Fld "name" _name
-
-age :: Label Person Int
-age = Label "age" _age
 
 ageE :: Expr Person Int
 ageE = Fld "age" _age
@@ -189,8 +178,8 @@ foldQuerySql (Filter l f q) =
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
   where (q', ctx) = foldQuerySql q
-foldQuerySql (Sort l _ (Label label _) limit q) =
-  ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " order by " ++ lookupVar ctx label ++ maybe "" ((" limit " ++) . show) limit
+foldQuerySql (Sort l _ f limit q) =
+  ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " order by " ++ foldExprSql ctx f  ++ maybe "" ((" limit " ++) . show) limit
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
   where (q', ctx) = foldQuerySql q
@@ -205,7 +194,7 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
-ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
+ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
 qr = all (Row "person" ["name", "age"])
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -251,15 +240,13 @@ data Index a = Unknown | Index Int
 fromRow :: Row -> Maybe a
 fromRow = undefined
 
-updateCache :: Ord b => QueryCache a -> Label a b -> Maybe Int -> a -> IO (Maybe (Index a))
+updateCache :: Ord b => QueryCache a -> Expr a b -> Maybe Int -> a -> IO (Maybe (Index a))
 updateCache = undefined
 
 requestFromDb :: String -> IO [a]
 requestFromDb = undefined
 
--- TODO: return sort path, not index
--- we will also need to make Fst/Snd/Fld a separated datatype (Path?)
--- and have an Expr constructor taking a Path
+-- TODO: return sort expr too
 
 passesQuery :: Query a -> Row -> IO [(Index a, a)]
 passesQuery (All _ (Row _ r')) row@(Row _ r) = if r == r'
