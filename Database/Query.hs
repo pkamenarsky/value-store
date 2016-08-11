@@ -55,21 +55,23 @@ genVar = do
 brackets :: String -> String
 brackets str = "(" ++ str ++ ")"
 
-type Ctx = Tree [(Maybe String, String)]
+data Path = F | S deriving (Show, Eq)
 
-foldExprSql' :: Ctx -> Expr r a -> String
-foldExprSql' ctx (Cnst a) = show a
-foldExprSql' ctx (Fld name _) =
-  case [ var | var <- rootLabel ctx, name == snd var ] of
+type Ctx = [([Path], Maybe String, String)]
+
+foldExprSql :: Ctx -> Expr r a -> String
+foldExprSql ctx (Cnst a) = show a
+foldExprSql ctx (Fld name _) =
+  case [ (a, v) | (p, a, v) <- ctx, name == v, p == [] ] of
     [(Just alias, var)] -> alias ++ "_" ++ var
     [(Nothing, var)]    -> var
     []                  -> error "No such var"
     _                   -> error "More than one var"
-foldExprSql' ctx (Fst q) = foldExprSql' (head $ subForest ctx) q
-foldExprSql' ctx (Snd q) = foldExprSql' (last $ subForest ctx) q
-foldExprSql' ctx (And a b) = brackets $ foldExprSql' ctx a ++ " and " ++ foldExprSql' ctx b
-foldExprSql' ctx (Grt a b) = brackets $ foldExprSql' ctx a ++ " > " ++ foldExprSql' ctx b
-foldExprSql' ctx (Plus a b) = brackets $ foldExprSql' ctx a ++ " + " ++ foldExprSql' ctx b
+foldExprSql ctx (Fst q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (F:ps) <- [p] ] q
+foldExprSql ctx (Snd q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (S:ps) <- [p] ] q
+foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
+foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
+foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
 data QueryCache a = QueryCache [a] deriving Show
 
@@ -156,6 +158,7 @@ te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
 
+{-
 aliasColumns :: String -> Ctx -> String
 aliasColumns alias ctx = concat $ intersperse ", "
   [ case calias of
@@ -189,7 +192,6 @@ foldQuerySql (Join l f ql qr) =
                     , colsr
                     ]
                     -}
-{-
 foldQuerySql (Sort l _ (Label label _) limit q) = "select * from (" ++ foldQuerySql q ++ ") " ++ queryLabel q ++ " order by " ++ queryLabel q ++ "." ++ label ++ maybe "" ((" limit " ++) . show) limit
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort name (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
@@ -197,7 +199,6 @@ qr = all (Row "person" ["name", "age"])
 q1 = join (Fst ageE `Grt` Snd ageE) ql qr
 
 q1sql = foldQuerySql (labelQuery q1)
--}
 
 q2 :: Query ((Person, Person), Person)
 q2 = join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons
@@ -211,6 +212,7 @@ simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
+-}
 
 {-
 
