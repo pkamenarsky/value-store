@@ -15,6 +15,7 @@ import Data.Ord
 import Data.Tree
 
 import Prelude hiding (filter, sort, all, join)
+import qualified Prelude as P
 
 import Debug.Trace
 
@@ -125,6 +126,15 @@ substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
+substSnd :: Expr (l, r) a -> r -> Expr l a
+substSnd (Cnst a) sub = Cnst a
+substSnd (Fld _ _) sub = error "Invalid field access"
+substSnd (Fst f) sub = f
+substSnd (Snd f) sub = Cnst (foldExpr f sub)
+substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
+substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
+substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
+
 tee :: Expr (Person, Person) Bool
 tee = Fst ageE `Grt` Snd ageE
 
@@ -203,7 +213,7 @@ q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd age
 q1sql = fst $ foldQuerySql (labelQuery q1)
 
 -- q2 :: _ -- Query ((Person, Person), Person)
-q2 = join (Fst (Fst ageE) `Grt` Fst (Snd ageE)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
+q2 = join ((Fst (Fst ageE) `Grt` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Grt` Cnst 666)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
 
 q2sql = fst $ foldQuerySql (labelQuery q2)
 
@@ -232,6 +242,7 @@ triggersQuery (Query xs flr limit) x
       then Just (Query (take count xs') flr limit, pos)
       else Nothing
 -}
+-}
 
 retrieveSql :: Query a -> [a]
 retrieveSql = undefined
@@ -248,27 +259,29 @@ requestFromDb :: String -> IO [a]
 requestFromDb = undefined
 
 passesQuery :: Query a -> Row -> IO [(Index a, a)]
-passesQuery (All (Row r')) row@(Row r) = if r == r'
+passesQuery (All _ (Row _ r')) row@(Row _ r) = if r == r'
   then case fromRow row of
     Just a -> return [(Unknown, a)]
     _      -> return []
   else return []
-passesQuery (Filter f q) row = do
+passesQuery (Filter _ f q) row = do
   rs <- passesQuery q row
-  return $ filter (foldExpr f . snd) rs
-passesQuery (Sort cache label limit q) row = do
+  return $ P.filter (foldExpr f . snd) rs
+passesQuery (Sort _ cache label limit q) row = do
   rs <- passesQuery q row
   rs' <- forM rs $ \(_, r) -> do
     index <- updateCache cache label limit r
     return ((,r) <$> index)
   return $ catMaybes rs'
-passesQuery (Join f ql qr) row = do
+passesQuery (Join _ f ql qr) row = do
   rl <- passesQuery ql row
   rr <- passesQuery qr row
-  rs' <- forM rl $ \(_, r) -> do
-    ls <- requestFromDb $ evalState (foldQuerySql $ Filter (substFst f r) qr) 0
+  rl' <- forM rl $ \(_, r) -> do
+    ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
     return [ (Unknown, (r, l)) | l <- ls ]
-  return $ concat rs'
+  rr' <- forM rr $ \(_, r) -> do
+    ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+    return [ (Unknown, (l, r)) | l <- ls ]
+  return $ concat rl' ++ concat rr'
 
 --------------------------------------------------------------------------------
--}
