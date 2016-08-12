@@ -11,6 +11,8 @@ module Database.Query where
 
 import Control.Monad.State hiding (join)
 
+import qualified Data.Aeson as A
+
 import Data.Maybe
 import Data.List                  (intersperse)
 import Data.Ord
@@ -95,18 +97,20 @@ data QueryCache a = QueryCache [a] deriving Show
 
 data Row = Row String [String] deriving Show
 
+data DBRow = DBRow String A.Value
+
 data Query' a l where
-  All    :: l -> Row -> Query' a l
+  All    :: A.FromJSON a => l -> Row -> Query' a l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
   Sort   :: Ord b => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
+  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: Row -> Query a
+all :: A.FromJSON a => Row -> Query a
 all = All ()
 
 filter :: Expr a Bool -> Query a -> Query a
@@ -115,7 +119,7 @@ filter = Filter ()
 sort :: Ord b => Expr a b -> Maybe Int -> Query a -> Query a
 sort = Sort () (QueryCache [])
 
-join :: (Show a, Show b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
+join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -166,6 +170,9 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 data Person = Person { _name :: String, _age :: Int } deriving (Generic, Show)
 
 instance PS.FromRow Person
+
+instance A.FromJSON Person
+instance A.ToJSON Person
 
 nameE :: Expr Person String
 nameE = Fld "name" _name
@@ -238,8 +245,6 @@ simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst 
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
 {-
-
-{-
 data Limit a = forall r. Ord r => Limit (Label a r) Int | NoLimit
 
 data Query a = Query [a] (a -> Bool) (Limit a)
@@ -254,45 +259,38 @@ triggersQuery (Query xs flr limit) x
       then Just (Query (take count xs') flr limit, pos)
       else Nothing
 -}
--}
 
-data Index a = Unknown | Index Int
+data Index a = Unknown | Index Int deriving Show
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
-fromRow :: Row -> Maybe a
-fromRow = undefined
+deriving instance Show (SortOrder a)
 
 updateCache :: Ord b => QueryCache a -> Expr a b -> Maybe Int -> a -> IO (Maybe (Index a))
 updateCache = undefined
 
-requestFromDb :: String -> IO [a]
-requestFromDb = undefined
-
--- TODO: return sort expr too
-
-passesQuery :: Query a -> Row -> IO (SortOrder a, [(Index a, a)])
-passesQuery (All _ (Row _ r')) row@(Row _ r) = if r == r'
-  then case fromRow row of
-    Just a -> return (Unsorted, [(Unknown, a)])
-    _      -> return (Unsorted, [])
+passesQuery :: PS.Connection -> Query a -> DBRow -> IO (SortOrder a, [(Index a, a)])
+passesQuery conn (All _ (Row r' _)) row@(DBRow r value) = if r == r'
+  then case A.fromJSON value of
+    A.Success a -> return (Unsorted, [(Unknown, a)])
+    _           -> return (Unsorted, [])
   else return (Unsorted, [])
-passesQuery (Filter _ f q) row = do
-  rs <- passesQuery q row
+passesQuery conn (Filter _ f q) row = do
+  rs <- passesQuery conn q row
   return (fst rs, P.filter (foldExpr f . snd) $ snd rs)
-passesQuery (Sort _ cache label limit q) row = do
-  rs <- passesQuery q row
+passesQuery conn (Sort _ cache label limit q) row = do
+  rs <- passesQuery conn q row
   rs' <- forM (snd rs) $ \(_, r) -> do
     index <- updateCache cache label limit r
     return ((,r) <$> index)
   return (SortBy label, catMaybes rs')
-passesQuery (Join _ f ql qr) row = do
-  rl <- passesQuery ql row
-  rr <- passesQuery qr row
+passesQuery conn (Join _ f ql qr) row = do
+  rl <- passesQuery conn ql row
+  rr <- passesQuery conn qr row
   rl' <- forM (snd rl) $ \(_, r) -> do
-    ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
     return [ (Unknown, (r :. l)) | l <- ls ]
   rr' <- forM (snd rr) $ \(_, r) -> do
-    ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
     return [ (Unknown, (l :. r)) | l <- ls ]
   return (Unsorted, concat rl' ++ concat rr')
 
@@ -306,6 +304,10 @@ test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
   rs <- query conn simplejoin
   print rs
+
+  pq <- passesQuery conn simplejoin (DBRow "person" (A.toJSON (Person "john" 111)))
+  print pq
+
   return ()
 
 --------------------------------------------------------------------------------
