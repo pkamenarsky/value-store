@@ -170,6 +170,7 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 data Person = Person { _name :: String, _age :: Int } deriving (Generic, Show)
 
 instance PS.FromRow Person
+instance PS.ToRow Person
 
 instance A.FromJSON Person
 instance A.ToJSON Person
@@ -288,9 +289,11 @@ passesQuery conn (Join _ f ql qr) row = do
   rr <- passesQuery conn qr row
   rl' <- forM (snd rl) $ \(_, r) -> do
     ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+    print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
     return [ (Unknown, (r :. l)) | l <- ls ]
   rr' <- forM (snd rr) $ \(_, r) -> do
     ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+    print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
     return [ (Unknown, (l :. r)) | l <- ls ]
   return (Unsorted, concat rl' ++ concat rr')
 
@@ -305,7 +308,10 @@ test = do
   rs <- query conn simplejoin
   print rs
 
-  pq <- passesQuery conn simplejoin (DBRow "person" (A.toJSON (Person "john" 111)))
+  let rec = (Person "john" 111)
+
+  PS.execute conn "insert into person (name, age) values (?, ?) " rec
+  pq <- passesQuery conn simplejoin (DBRow "person" (A.toJSON rec))
   print pq
 
   return ()
