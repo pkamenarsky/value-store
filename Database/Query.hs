@@ -241,6 +241,7 @@ triggersQuery (Query xs flr limit) x
 -}
 
 data Index a = Unknown | Index Int
+data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 fromRow :: Row -> Maybe a
 fromRow = undefined
@@ -253,30 +254,30 @@ requestFromDb = undefined
 
 -- TODO: return sort expr too
 
-passesQuery :: Query a -> Row -> IO [(Index a, a)]
+passesQuery :: Query a -> Row -> IO (SortOrder a, [(Index a, a)])
 passesQuery (All _ (Row _ r')) row@(Row _ r) = if r == r'
   then case fromRow row of
-    Just a -> return [(Unknown, a)]
-    _      -> return []
-  else return []
+    Just a -> return (Unsorted, [(Unknown, a)])
+    _      -> return (Unsorted, [])
+  else return (Unsorted, [])
 passesQuery (Filter _ f q) row = do
   rs <- passesQuery q row
-  return $ P.filter (foldExpr f . snd) rs
+  return (fst rs, P.filter (foldExpr f . snd) $ snd rs)
 passesQuery (Sort _ cache label limit q) row = do
   rs <- passesQuery q row
-  rs' <- forM rs $ \(_, r) -> do
+  rs' <- forM (snd rs) $ \(_, r) -> do
     index <- updateCache cache label limit r
     return ((,r) <$> index)
-  return $ catMaybes rs'
+  return (SortBy label, catMaybes rs')
 passesQuery (Join _ f ql qr) row = do
   rl <- passesQuery ql row
   rr <- passesQuery qr row
-  rl' <- forM rl $ \(_, r) -> do
+  rl' <- forM (snd rl) $ \(_, r) -> do
     ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
     return [ (Unknown, (r, l)) | l <- ls ]
-  rr' <- forM rr $ \(_, r) -> do
+  rr' <- forM (snd rr) $ \(_, r) -> do
     ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
     return [ (Unknown, (l, r)) | l <- ls ]
-  return $ concat rl' ++ concat rr'
+  return (Unsorted, concat rl' ++ concat rr')
 
 --------------------------------------------------------------------------------
