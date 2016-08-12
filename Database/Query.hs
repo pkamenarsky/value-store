@@ -1,8 +1,11 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Database.Query where
 
@@ -12,10 +15,19 @@ import Data.Maybe
 import Data.List                  (intersperse)
 import Data.Ord
 
+import qualified Data.ByteString.Char8 as B
+
 import Data.Tree
 
 import Prelude hiding (filter, sort, all, join)
 import qualified Prelude as P
+
+import qualified Database.PostgreSQL.Simple as PS
+import qualified Database.PostgreSQL.Simple.Types as PS
+import Database.PostgreSQL.Simple.Types ((:.)(..))
+import qualified Database.PostgreSQL.Simple.FromRow as PS
+
+import GHC.Generics
 
 import Debug.Trace
 
@@ -36,8 +48,8 @@ insertBy' cmp x ys@(y:ys') i
 data Expr r a where
   Cnst :: Show a => a -> Expr r a
   Fld  :: String -> (r -> a) -> Expr r a
-  Fst  :: Show a => Expr r a -> Expr (r, s) a
-  Snd  :: Show a => Expr s a -> Expr (r, s) a
+  Fst  :: Show a => Expr r a -> Expr (r :. s) a
+  Snd  :: Show a => Expr s a -> Expr (r :. s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
@@ -85,7 +97,7 @@ data Query' a l where
   All    :: l -> Row -> Query' a l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
   Sort   :: Ord b => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b) => l -> Expr (a, b) Bool -> Query' a l -> Query' b l -> Query' (a, b) l
+  Join   :: (Show a, Show b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
@@ -101,7 +113,7 @@ filter = Filter ()
 sort :: Ord b => Expr a b -> Maybe Int -> Query a -> Query a
 sort = Sort () (QueryCache [])
 
-join :: (Show a, Show b) => Expr (a, b) Bool -> Query a -> Query b -> Query (a, b)
+join :: (Show a, Show b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -117,7 +129,7 @@ deriving instance Traversable (Query' a)
 labelQuery :: Query a -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
-substFst :: Expr (l, r) a -> l -> Expr r a
+substFst :: Expr (l :. r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
 substFst (Fst f) sub = Cnst (foldExpr f sub)
@@ -126,7 +138,7 @@ substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
-substSnd :: Expr (l, r) a -> r -> Expr l a
+substSnd :: Expr (l :. r) a -> r -> Expr l a
 substSnd (Cnst a) sub = Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
@@ -135,21 +147,20 @@ substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
 substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
 substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
-tee :: Expr (Person, Person) Bool
-tee = Fst ageE `Grt` Snd ageE
-
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
 foldExpr (Fld _ get) = get
-foldExpr (Fst f) = \(r, _) -> foldExpr f r
-foldExpr (Snd f) = \(_, r) -> foldExpr f r
+foldExpr (Fst f) = \(r :. _) -> foldExpr f r
+foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
 
-data Person = Person { _name :: String, _age :: Int } deriving Show
+data Person = Person { _name :: String, _age :: Int } deriving (Generic, Show)
+
+instance PS.FromRow Person
 
 nameE :: Expr Person String
 nameE = Fld "name" _name
@@ -160,7 +171,7 @@ ageE = Fld "age" _age
 expr :: Expr Person Bool
 expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
 
-te' :: Expr ((Person, Person), Person) Bool
+-- te' :: Expr ((Person, Person), Person) Bool
 te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
 
 --------------------------------------------------------------------------------
@@ -274,10 +285,22 @@ passesQuery (Join _ f ql qr) row = do
   rr <- passesQuery qr row
   rl' <- forM (snd rl) $ \(_, r) -> do
     ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-    return [ (Unknown, (r, l)) | l <- ls ]
+    return [ (Unknown, (r :. l)) | l <- ls ]
   rr' <- forM (snd rr) $ \(_, r) -> do
     ls <- requestFromDb $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-    return [ (Unknown, (l, r)) | l <- ls ]
+    return [ (Unknown, (l :. r)) | l <- ls ]
   return (Unsorted, concat rl' ++ concat rr')
+
+query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
+query conn q = do
+  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery q)
+  return rs
+
+test :: IO ()
+test = do
+  conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
+  rs <- query conn q2
+  print rs
+  return ()
 
 --------------------------------------------------------------------------------
