@@ -52,6 +52,7 @@ data Expr r a where
   Snd  :: Show a => Expr s a -> Expr (r :. s) a
   And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
+  Eqs  :: Expr r Int -> Expr r Int -> Expr r Bool
   Plus :: Expr r Int -> Expr r Int -> Expr r Int
 
 instance Show (a -> b) where
@@ -87,6 +88,7 @@ foldExprSql ctx (Fst q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (F:ps) <-
 foldExprSql ctx (Snd q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (S:ps) <- [p] ] q
 foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
 foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
+foldExprSql ctx (Eqs a b) = brackets $ foldExprSql ctx a ++ " = " ++ foldExprSql ctx b
 foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
 data QueryCache a = QueryCache [a] deriving Show
@@ -136,6 +138,7 @@ substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
+substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 substSnd :: Expr (l :. r) a -> r -> Expr l a
@@ -145,6 +148,7 @@ substSnd (Fst f) sub = f
 substSnd (Snd f) sub = Cnst (foldExpr f sub)
 substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
 substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
+substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
 substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> a)
@@ -154,6 +158,7 @@ foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
+foldExpr (Eqs a b) = \r -> foldExpr a r == foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
@@ -224,7 +229,7 @@ q2sql = fst $ foldQuerySql (labelQuery q2)
 
 allPersons = all (Row "person" ["name", "age"])
 
-simplejoin = join (Fst ageE `Grt` Snd ageE) allPersons allPersons
+simplejoin = join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -299,7 +304,7 @@ query conn q = do
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
-  rs <- query conn q2
+  rs <- query conn simplejoin
   print rs
   return ()
 
