@@ -1,7 +1,8 @@
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -13,6 +14,8 @@ import Control.Monad.State hiding (join)
 
 import qualified Data.Aeson as A
 
+import Data.Data
+import Data.IORef
 import Data.Maybe
 import Data.List                  (intersperse)
 import Data.Ord
@@ -30,6 +33,7 @@ import Database.PostgreSQL.Simple.Types ((:.)(..))
 import qualified Database.PostgreSQL.Simple.FromRow as PS
 
 import GHC.Generics
+import System.IO.Unsafe
 
 import Debug.Trace
 
@@ -93,7 +97,10 @@ foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql
 foldExprSql ctx (Eqs a b) = brackets $ foldExprSql ctx a ++ " = " ++ foldExprSql ctx b
 foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
 
-data QueryCache a = QueryCache [a] deriving Show
+instance Show (IORef a) where
+  show _ = "IORef _"
+
+data QueryCache a = QueryCache (Maybe (IORef [a])) deriving Show
 
 data Row = Row String [String] deriving Show
 
@@ -102,7 +109,7 @@ data DBRow = DBRow String A.Value
 data Query' a l where
   All    :: A.FromJSON a => l -> Row -> Query' a l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: Ord b => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
   Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -116,8 +123,8 @@ all = All ()
 filter :: Expr a Bool -> Query a -> Query a
 filter = Filter ()
 
-sort :: Ord b => Expr a b -> Maybe Int -> Query a -> Query a
-sort = Sort () (QueryCache [])
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query a -> Query a
+sort = Sort () (QueryCache Nothing)
 
 join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
 join = Join ()
@@ -296,6 +303,21 @@ passesQuery conn (Join _ f ql qr) row = do
     print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
     return [ (Unknown, (l :. r)) | l <- ls ]
   return (Unsorted, concat rl' ++ concat rr')
+
+fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
+fillCaches _ (All l a) = return (All l a)
+fillCaches conn (Filter l a q) = do
+  q' <- fillCaches conn q
+  return (Filter l a q')
+fillCaches conn qq@(Sort l _ b c q) = do
+  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+  cache <- (QueryCache . Just) <$> newIORef rs
+  q' <- fillCaches conn q
+  return (Sort l cache b c q')
+fillCaches conn (Join l a ql qr) = do
+  ql' <- fillCaches conn ql
+  qr' <- fillCaches conn qr
+  return (Join l a ql' qr')
 
 query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
 query conn q = do
