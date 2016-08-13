@@ -289,15 +289,19 @@ passesQuery conn (Sort _ cache label limit q) row = do
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
-  rl' <- forM (snd rl) $ \(_, r) -> do
-    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) $ fmap (const ()) qr
-    -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-    return [ (Unknown, (r :. l)) | l <- ls ]
-  rr' <- forM (snd rr) $ \(_, r) -> do
-    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) $ fmap (const ()) ql
-    -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-    return [ (Unknown, (l :. r)) | l <- ls ]
-  return (Unsorted, concat rl' ++ concat rr')
+  if not (null rl)
+    then do
+      rl' <- forM (snd rl) $ \(_, r) -> do
+        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) $ fmap (const ()) qr
+        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+        return [ (Unknown, (r :. l)) | l <- ls ]
+      return (Unsorted, concat rl')
+    else do
+      rr' <- forM (snd rr) $ \(_, r) -> do
+        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) $ fmap (const ()) ql
+        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+        return [ (Unknown, (l :. r)) | l <- ls ]
+      return (Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
