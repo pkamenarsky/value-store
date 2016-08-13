@@ -252,29 +252,21 @@ simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
-{-
-data Limit a = forall r. Ord r => Limit (Label a r) Int | NoLimit
-
-data Query a = Query [a] (a -> Bool) (Limit a)
-
--- Returns the index of the new record.
-triggersQuery :: Query a -> a -> Maybe (Query a, Int)
-triggersQuery (Query xs flr limit) x
-  | not (flr x)              = Nothing
-  | NoLimit         <- limit = Just (Query [] flr NoLimit, 0)
-  | Limit (Label _ get) count <- limit
-  , (pos, xs')      <- insertBy' (comparing get) x xs 0 = if pos < count
-      then Just (Query (take count xs') flr limit, pos)
-      else Nothing
--}
-
 data Index a = Unknown | Index Int deriving Show
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
 
 updateCache :: Ord b => QueryCache a -> Expr a b -> Maybe Int -> a -> IO (Maybe (Index a))
-updateCache = undefined
+updateCache (QueryCache _) f Nothing a                 = return (Just Unknown)
+updateCache (QueryCache Nothing) f (Just limit) a      = error "No cache"
+updateCache (QueryCache (Just cache)) f (Just limit) a = do
+  rs <- readIORef cache
+  let (i, rs') = insertBy' (comparing (foldExpr f)) a rs 0
+  writeIORef cache (take limit rs')
+  if i < limit
+    then return (Just (Index i))
+    else return Nothing
 
 passesQuery :: PS.Connection -> Query a -> DBRow -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBRow r value) = if r == r'
@@ -309,19 +301,25 @@ fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
   return (Filter l a q')
-fillCaches conn qq@(Sort l _ b c q) = do
-  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-  cache <- (QueryCache . Just) <$> newIORef rs
+fillCaches conn qq@(Sort l _ b limit q) = do
+  cache <- case limit of
+    Just _  -> do
+      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+      QueryCache . Just <$> newIORef rs
+    Nothing -> return $ QueryCache Nothing
   q' <- fillCaches conn q
-  return (Sort l cache b c q')
+  return (Sort l cache b limit q')
 fillCaches conn (Join l a ql qr) = do
   ql' <- fillCaches conn ql
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
 
+-- TODO: lock while calling passesQuery to ensure cache consistency. Is this
+-- important?
 query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
 query conn q = do
-  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery q)
+  cq <- fillCaches conn (labelQuery q)
+  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
   return rs
 
 test :: IO ()
