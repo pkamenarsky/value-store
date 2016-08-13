@@ -314,12 +314,19 @@ fillCaches conn (Join l a ql qr) = do
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
 
+listen :: (A.Value -> IO ()) -> IO ()
+listen = undefined
+
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
 query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
 query conn q = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
+  forever $ listen $ \value -> do
+    -- TODO: this is unlabeled query without caches
+    pq <- passesQuery conn q (DBRow undefined value)
+    return ()
   return rs
 
 test :: IO ()
