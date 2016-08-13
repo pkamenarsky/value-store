@@ -139,7 +139,7 @@ deriving instance Functor (Query' a)
 deriving instance Foldable (Query' a)
 deriving instance Traversable (Query' a)
 
-labelQuery :: Query a -> LQuery a
+labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
@@ -268,7 +268,7 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> Query a -> DBRow -> IO (SortOrder a, [(Index a, a)])
+passesQuery :: PS.Connection -> LQuery a -> DBRow -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBRow r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
@@ -287,12 +287,12 @@ passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
   rl' <- forM (snd rl) $ \(_, r) -> do
-    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-    print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) $ fmap (const ()) qr
+    -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
     return [ (Unknown, (r :. l)) | l <- ls ]
   rr' <- forM (snd rr) $ \(_, r) -> do
-    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-    print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+    ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) $ fmap (const ()) ql
+    -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
     return [ (Unknown, (l :. r)) | l <- ls ]
   return (Unsorted, concat rl' ++ concat rr')
 
@@ -314,7 +314,7 @@ fillCaches conn (Join l a ql qr) = do
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
 
-listen :: (A.Value -> IO ()) -> IO ()
+listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
@@ -323,23 +323,24 @@ query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
 query conn q = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
-  forever $ listen $ \value -> do
-    -- TODO: this is unlabeled query without caches
-    pq <- passesQuery conn q (DBRow undefined value)
+  forever $ listen $ \col value -> do
+    pq <- passesQuery conn cq (DBRow col value)
     return ()
   return rs
 
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
-  rs <- query conn simplejoin
+  let q = simplejoin
+  rs <- query conn q
+  pq <- fillCaches conn $ labelQuery q
   print rs
 
   let rec = (Person "john" 111)
 
   PS.execute conn "insert into person (name, age) values (?, ?) " rec
-  pq <- passesQuery conn simplejoin (DBRow "person" (A.toJSON rec))
-  print pq
+  rs' <- passesQuery conn pq (DBRow "person" (A.toJSON rec))
+  print rs'
 
   return ()
 
