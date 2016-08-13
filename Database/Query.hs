@@ -11,6 +11,7 @@
 module Database.Query where
 
 import Control.Monad.State hiding (join)
+import Control.Concurrent
 
 import qualified Data.Aeson as A
 
@@ -21,6 +22,7 @@ import Data.List                  (intersperse)
 import Data.Ord
 
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as BL
 
 import Data.Tree
 
@@ -29,6 +31,7 @@ import qualified Prelude as P
 
 import qualified Database.PostgreSQL.Simple as PS
 import qualified Database.PostgreSQL.Simple.Types as PS
+import qualified Database.PostgreSQL.Simple.Notification as PS
 import Database.PostgreSQL.Simple.Types ((:.)(..))
 import qualified Database.PostgreSQL.Simple.FromRow as PS
 
@@ -317,30 +320,46 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
+insertRow :: (A.ToJSON a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+insertRow conn col a = do
+  void $ PS.execute conn "insert into person (name, age) values (?, ?) " a
+  void $ PS.execute conn "notify person, ?" (PS.Only $ A.toJSON a)
+
+deriving instance Show PS.Notification
+
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: PS.FromRow a => PS.Connection -> Query a -> IO [a]
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> IO [a]
 query conn q = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
-  forever $ listen $ \col value -> do
-    pq <- passesQuery conn cq (DBRow col value)
-    return ()
+
+  PS.execute_ conn "listen person"
+
+  forkIO $ forever $ do
+    nt <- PS.getNotification conn
+    traceIO $ "NOT: " ++ show nt
+    case A.decode (BL.fromStrict $ PS.notificationData nt) of
+      Just a -> do
+        traceIO "DECODED"
+        traceIO $ show a
+        pq <- passesQuery conn cq (DBRow (B.unpack $ PS.notificationChannel nt) a)
+        traceIO $ show pq
+        return ()
+      Nothing -> do
+        return ()
   return rs
 
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
-  let q = simplejoin
-  rs <- query conn q
-  pq <- fillCaches conn $ labelQuery q
-  print rs
+
+  rs <- query conn simplejoin
+  traceIO $ show rs
 
   let rec = (Person "john" 111)
 
-  PS.execute conn "insert into person (name, age) values (?, ?) " rec
-  rs' <- passesQuery conn pq (DBRow "person" (A.toJSON rec))
-  print rs'
+  insertRow conn "person" rec
 
   return ()
 
