@@ -2,8 +2,10 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
@@ -183,13 +185,13 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int } deriving (Generic, Typeable, Data, Show)
 
-data Image = Horizontal | Vertical Person deriving Data
-
 instance PS.FromRow Person
 instance PS.ToRow Person
 
 instance A.FromJSON Person
 instance A.ToJSON Person
+
+data Image = Horizontal | Vertical Person deriving Generic
 
 nameE :: Expr Person String
 nameE = Fld "name" _name
@@ -330,12 +332,28 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-class GDBRow a where
-  gToRow   :: a -> (Int, [(String, String)])
-  gFromRow :: (Int, [(String, String)]) -> Maybe a
+class GDBRow f where
+  gToRow :: f a -> (Int, [(String, String)])
+  -- gFromRow :: (Int, [(String, String)]) -> Maybe a
 
-instance GDBRow (M1 c i f p) where
-  gToRow (M1 x) = undefined
+instance GDBRow U1 where
+  gToRow U1 = (0, [])
+
+instance GDBRow f => GDBRow (M1 D i f) where
+  gToRow (M1 x) = gToRow x
+
+instance GDBRow f => GDBRow (M1 C i f) where
+  gToRow (M1 x) = gToRow x
+
+instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
+  gToRow (f :*: g) = (0, snd (gToRow f) ++ snd (gToRow g))
+
+instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
+  gToRow (L1 x) = gToRow x
+  gToRow (R1 x) = gToRow x
+
+instance (Selector s, Typeable t) => GDBRow (M1 S s (K1 R t)) where
+  gToRow _ = (0, [(selName (undefined :: M1 S s (K1 R t) ()), "")])
 
 insertRow :: (A.ToJSON a, PS.ToRow a, Data a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
