@@ -15,12 +15,14 @@ import Control.Concurrent
 
 import qualified Data.Aeson as A
 
+import Data.Char
 import Data.Data
 import Data.IORef
 import Data.Maybe
 import Data.List                  (intersperse)
 import Data.Ord
 
+import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 
@@ -31,6 +33,8 @@ import qualified Prelude as P
 
 import qualified Database.PostgreSQL.Simple as PS
 import qualified Database.PostgreSQL.Simple.Types as PS
+import qualified Database.PostgreSQL.Simple.ToField as PS
+import qualified Database.PostgreSQL.Simple.ToRow as PS
 import qualified Database.PostgreSQL.Simple.Notification as PS
 import Database.PostgreSQL.Simple.Types ((:.)(..))
 import qualified Database.PostgreSQL.Simple.FromRow as PS
@@ -177,7 +181,9 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
 
-data Person = Person { _name :: String, _age :: Int } deriving (Generic, Show)
+data Person = Person { _name :: String, _age :: Int } deriving (Generic, Typeable, Data, Show)
+
+data Image = Horizontal | Vertical Person deriving Data
 
 instance PS.FromRow Person
 instance PS.ToRow Person
@@ -324,9 +330,18 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-insertRow :: (A.ToJSON a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+class GDBRow a where
+  gToRow   :: a -> (Int, [(String, String)])
+  gFromRow :: (Int, [(String, String)]) -> Maybe a
+
+instance GDBRow (M1 c i f p) where
+  gToRow (M1 x) = undefined
+
+insertRow :: (A.ToJSON a, PS.ToRow a, Data a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
-  void $ PS.execute conn "insert into person (name, age) values (?, ?) " a
+  let table  = map toLower $ dataTypeName $ dataTypeOf a
+      fields = constrFields $ toConstr a
+  void $ PS.execute conn "insert into ? (name, age) values (?, ?) " (PS.Only (PS.Many $ (PS.Plain (B.byteString $ B.pack table)):PS.toRow a))
   void $ PS.execute conn "notify person, ?" (PS.Only $ A.toJSON a)
 
 deriving instance Show PS.Notification
