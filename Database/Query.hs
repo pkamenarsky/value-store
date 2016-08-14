@@ -247,7 +247,7 @@ q2sql = fst $ foldQuerySql (labelQuery q2)
 
 allPersons = all (Row "person" ["name", "age"])
 
-simplejoin = join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -333,10 +333,11 @@ deriving instance Show PS.Notification
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> IO [a]
-query conn q = do
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> ([a] -> IO ()) -> IO [a]
+query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
+  rr <- newIORef rs
 
   PS.execute_ conn "listen person"
 
@@ -345,11 +346,14 @@ query conn q = do
     traceIO $ "NOT: " ++ show nt
     case A.decode (BL.fromStrict $ PS.notificationData nt) of
       Just a -> do
-        traceIO "DECODED"
-        traceIO $ show a
-        pq <- passesQuery conn cq (DBRow (B.unpack $ PS.notificationChannel nt) a)
-        traceIO $ show pq
-        return ()
+        -- traceIO "DECODED"
+        -- traceIO $ show a
+        (sf, pq) <- passesQuery conn cq (DBRow (B.unpack $ PS.notificationChannel nt) a)
+        case sf of
+          Unsorted -> modifyIORef rr (++ (map snd pq))
+          SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
+        readIORef rr >>= cb
+        -- traceIO $ show pq
       Nothing -> do
         return ()
   return rs
@@ -358,8 +362,8 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  rs <- query conn simplejoin
-  traceIO $ show rs
+  rs <- query conn simplejoin (traceIO . show)
+  -- traceIO $ show rs
 
   let rec = (Person "john" 111)
 
