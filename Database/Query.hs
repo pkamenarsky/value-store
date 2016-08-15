@@ -187,6 +187,8 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int } deriving (Generic, Typeable, Data, Show)
 
+data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Data, Show)
+
 instance PS.FromRow Person
 instance PS.ToRow Person
 
@@ -194,6 +196,7 @@ instance A.FromJSON Person
 instance A.ToJSON Person
 
 instance SDBRow Person
+instance SDBRow Address
 
 data Image = Horizontal | Vertical Person String deriving Generic
 
@@ -340,22 +343,29 @@ listen = undefined
 
 data Object = Empty | Value String | Object String [(String, Object)] deriving Show
 
-{-
-flattenObject :: Int -> Object -> [(String, String)]
-flattenObject fcount (Pair "" v) = [("a_" ++ show fcount, v)]
-flattenObject fcount (Pair k v) = [(k, v)]
-flattenObject fcount (Object (cnst, kvs)) = concatMap (uncurry flattenObject) (zip [0..] kvs)
--}
+flattenObject :: String -> Object -> [(String, String)]
+flattenObject prefix Empty     = []
+flattenObject prefix (Value v) = [(prefix, v)]
+flattenObject prefix (Object cnst kvs) = concat
+  [ flattenObject (prefix' k i) v
+  | (i, (k, v)) <- zip [0..] (("cnst", Value cnst):kvs)
+  ]
+  where
+    prefix' k i
+           | null prefix   = k' k i
+           | otherwise     = prefix ++ "_" ++ k' k i
+
+    k' k i | null k        = show i
+           | ('_':ks) <- k = ks
+           | otherwise     = k
 
 class SDBRow a where
   toRow :: a -> Object
   default toRow :: (Generic a, GDBRow (Rep a)) => a -> Object
   toRow = gToRow . from
 
-{-
 instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
-  toRow (a, b) = [Object (",", [Object ("fst", toRow a), Object ("snd", toRow b)])]
--}
+  toRow (a, b) = Object "," [("fst", toRow a), ("snd", toRow b)]
 
 instance SDBRow Char where
   toRow x = Value (show x)
@@ -379,7 +389,8 @@ instance GDBRow f => GDBRow (D1 i f) where
 instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
   gToRow (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gToRow x))
     where get (Object _ kvs) = kvs
-          get _ = error "C1 returned value"
+          get Empty = []
+          get _ = error "C1 returned Value"
 
 instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
   gToRow (M1 x) = Object "" [ (selName (undefined :: S1 s f ()), gToRow x) ]
@@ -390,6 +401,7 @@ instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
 instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
   gToRow (f :*: g) = Object "" (get (gToRow f) ++ get (gToRow g))
     where get (Object _ kvs) = kvs
+          get Empty = []
           get _ = error "gToRow returned value"
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
