@@ -1,7 +1,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -191,7 +193,11 @@ instance PS.ToRow Person
 instance A.FromJSON Person
 instance A.ToJSON Person
 
-data Image = Horizontal | Vertical Person deriving Generic
+instance SDBRow Person
+
+data Image = Horizontal | Vertical Person String deriving Generic
+
+instance SDBRow Image
 
 nameE :: Expr Person String
 nameE = Fld "name" _name
@@ -332,28 +338,38 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
+data Object = Pair String String | Object { unObj :: (String, [Object]) } deriving Show
+
+class SDBRow a where
+  toRow :: a -> [Object]
+  default toRow :: (Generic a, GDBRow (Rep a)) => a -> [Object]
+  toRow = gToRow . from
+
+instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
+  toRow (a, b) = [Object (",", [Object ("fst", toRow a), Object ("snd", toRow b)])]
+
 class GDBRow f where
-  gToRow :: f a -> (Int, [(String, String)])
+  gToRow :: f a -> [Object]
   -- gFromRow :: (Int, [(String, String)]) -> Maybe a
 
 instance GDBRow U1 where
-  gToRow U1 = (0, [])
+  gToRow U1 = []
 
 instance GDBRow f => GDBRow (M1 D i f) where
   gToRow (M1 x) = gToRow x
 
-instance GDBRow f => GDBRow (M1 C i f) where
-  gToRow (M1 x) = gToRow x
+instance (GDBRow f, Constructor c) => GDBRow (M1 C c f) where
+  gToRow (M1 x) = [ Object (conName (undefined :: M1 C c f ()), gToRow x) ]
+
+instance (Selector s, Typeable t, Show t) => GDBRow (M1 S s (K1 R t)) where
+  gToRow (M1 (K1 x)) = [Pair (selName (undefined :: M1 S s (K1 R t) ())) (show x)]
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
-  gToRow (f :*: g) = (0, snd (gToRow f) ++ snd (gToRow g))
+  gToRow (f :*: g) = gToRow f ++ gToRow g
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
   gToRow (L1 x) = gToRow x
   gToRow (R1 x) = gToRow x
-
-instance (Selector s, Typeable t) => GDBRow (M1 S s (K1 R t)) where
-  gToRow _ = (0, [(selName (undefined :: M1 S s (K1 R t) ()), "")])
 
 insertRow :: (A.ToJSON a, PS.ToRow a, Data a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
