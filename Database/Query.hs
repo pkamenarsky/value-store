@@ -338,7 +338,7 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-data Object = Pair String (Either String Object) | Object String [Object] deriving Show
+data Object = Empty | Value String | Object String [(String, Object)] deriving Show
 
 {-
 flattenObject :: Int -> Object -> [(String, String)]
@@ -348,8 +348,8 @@ flattenObject fcount (Object (cnst, kvs)) = concatMap (uncurry flattenObject) (z
 -}
 
 class SDBRow a where
-  toRow :: a -> [Object]
-  default toRow :: (Generic a, GDBRow (Rep a)) => a -> [Object]
+  toRow :: a -> Object
+  default toRow :: (Generic a, GDBRow (Rep a)) => a -> Object
   toRow = gToRow . from
 
 {-
@@ -358,53 +358,39 @@ instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
 -}
 
 instance SDBRow Char where
-  toRow x = [ Pair "" (Left $ show x) ]
+  toRow x = Value (show x)
 
 instance SDBRow String where
-  toRow x = [ Pair "" (Left $ show x) ]
+  toRow x = Value (show x)
 
 instance SDBRow Int where
-  toRow x = [ Pair "" (Left $ show x) ]
+  toRow x = Value (show x)
 
 class GDBRow f where
-  gToRow :: f a -> [Object]
+  gToRow :: f a -> Object
   -- gFromRow :: (Int, [(String, String)]) -> Maybe a
 
-{-
-class Column a where
-  toColumn :: a -> String
-
-instance Column Int where
-  toColumn = show
-
-instance Column String where
-  toColumn = show
--}
-
 instance GDBRow U1 where
-  gToRow U1 = []
+  gToRow U1 = Empty
 
 instance GDBRow f => GDBRow (D1 i f) where
   gToRow (M1 x) = gToRow x
 
 instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
-  gToRow (M1 x) = [ Object (conName (undefined :: C1 c f ())) (gToRow x) ]
-
---instance (GDBRow f) => GDBRow (M1 u s (C1 c f)) where
-  -- gToRow (M1 (K1 x)) = [ Pair (selName (undefined :: M1 S s (K1 R t) ())) (toColumn x) ]
-
-{-
-instance (Selector s, Column t) => GDBRow (M1 S s (K1 r t)) where
-  gToRow (M1 (K1 x)) = [ Pair (selName (undefined :: M1 S s (K1 r t) ())) (toColumn x) ]
--}
-instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
-  gToRow (K1 x) = [ Pair "" (Right $ head $ toRow x) ]
+  gToRow (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gToRow x))
+    where get (Object _ kvs) = kvs
+          get _ = error "C1 returned value"
 
 instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
-  gToRow (M1 x) = [ Pair (selName (undefined :: S1 s f ())) (Right $ head $ gToRow x) ]
+  gToRow (M1 x) = Object "" [ (selName (undefined :: S1 s f ()), gToRow x) ]
+
+instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
+  gToRow (K1 x) = toRow x
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
-  gToRow (f :*: g) = gToRow f ++ gToRow g
+  gToRow (f :*: g) = Object "" (get (gToRow f) ++ get (gToRow g))
+    where get (Object _ kvs) = kvs
+          get _ = error "gToRow returned value"
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
   gToRow (L1 x) = gToRow x
