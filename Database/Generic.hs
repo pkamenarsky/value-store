@@ -75,21 +75,21 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
 instance GFields U1 where
   gFields _ = Empty
 
-class SDBRow a where
+class DBRow a where
   toRow :: a -> Object
   default toRow :: (Generic a, GDBRow (Rep a)) => a -> Object
   toRow = gToRow . from
 
-instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
+instance (DBRow a, DBRow b) => DBRow (a, b) where
   toRow (a, b) = Object "," [("fst", toRow a), ("snd", toRow b)]
 
-instance SDBRow Char where
+instance DBRow Char where
   toRow x = Value (show x)
 
-instance SDBRow String where
+instance DBRow String where
   toRow x = Value (show x)
 
-instance SDBRow Int where
+instance DBRow Int where
   toRow x = Value (show x)
 
 class GDBRow f where
@@ -111,7 +111,7 @@ instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
 instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
   gToRow (M1 x) = Object "" [ (selName (undefined :: S1 s f ()), gToRow x) ]
 
-instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
+instance (GDBRow (Rep f), DBRow f) => GDBRow (K1 R f) where
   gToRow (K1 x) = toRow x
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where

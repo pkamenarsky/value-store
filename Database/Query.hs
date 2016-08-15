@@ -113,7 +113,7 @@ data QueryCache a = QueryCache (Maybe (IORef [a])) deriving Show
 
 data Row = Row String [String] deriving Show
 
-data DBRow = DBRow String A.Value
+data DBValue = DBValue String A.Value
 
 data Query' a l where
   All    :: A.FromJSON a => l -> Row -> Query' a l
@@ -193,14 +193,14 @@ instance PS.ToRow Person
 instance A.FromJSON Person
 instance A.ToJSON Person
 
-instance SDBRow Person
+instance DBRow Person
 instance Fields Person
-instance SDBRow Address
+instance DBRow Address
 instance Fields Address
 
 data Image = Horizontal | Vertical Person String deriving Generic
 
-instance SDBRow Image
+instance DBRow Image
 instance Fields Image
 
 nameE :: Expr Person String
@@ -289,8 +289,8 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> LQuery a -> DBRow -> IO (SortOrder a, [(Index a, a)])
-passesQuery conn (All _ (Row r' _)) row@(DBRow r value) = if r == r'
+passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
+passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
     _           -> return (Unsorted, [])
@@ -368,7 +368,7 @@ query conn q cb = do
       Just a -> do
         -- traceIO "DECODED"
         -- traceIO $ show a
-        (sf, pq) <- passesQuery conn cq (DBRow (B.unpack $ PS.notificationChannel nt) a)
+        (sf, pq) <- passesQuery conn cq (DBValue (B.unpack $ PS.notificationChannel nt) a)
         case sf of
           Unsorted -> modifyIORef rr (++ (map snd pq))
           SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
