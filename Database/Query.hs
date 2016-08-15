@@ -338,31 +338,70 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-data Object = Pair String String | Object { unObj :: (String, [Object]) } deriving Show
+data Object = Pair String (Either String Object) | Object String [Object] deriving Show
+
+{-
+flattenObject :: Int -> Object -> [(String, String)]
+flattenObject fcount (Pair "" v) = [("a_" ++ show fcount, v)]
+flattenObject fcount (Pair k v) = [(k, v)]
+flattenObject fcount (Object (cnst, kvs)) = concatMap (uncurry flattenObject) (zip [0..] kvs)
+-}
 
 class SDBRow a where
   toRow :: a -> [Object]
   default toRow :: (Generic a, GDBRow (Rep a)) => a -> [Object]
   toRow = gToRow . from
 
+{-
 instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
   toRow (a, b) = [Object (",", [Object ("fst", toRow a), Object ("snd", toRow b)])]
+-}
+
+instance SDBRow Char where
+  toRow x = [ Pair "" (Left $ show x) ]
+
+instance SDBRow String where
+  toRow x = [ Pair "" (Left $ show x) ]
+
+instance SDBRow Int where
+  toRow x = [ Pair "" (Left $ show x) ]
 
 class GDBRow f where
   gToRow :: f a -> [Object]
   -- gFromRow :: (Int, [(String, String)]) -> Maybe a
 
+{-
+class Column a where
+  toColumn :: a -> String
+
+instance Column Int where
+  toColumn = show
+
+instance Column String where
+  toColumn = show
+-}
+
 instance GDBRow U1 where
   gToRow U1 = []
 
-instance GDBRow f => GDBRow (M1 D i f) where
+instance GDBRow f => GDBRow (D1 i f) where
   gToRow (M1 x) = gToRow x
 
-instance (GDBRow f, Constructor c) => GDBRow (M1 C c f) where
-  gToRow (M1 x) = [ Object (conName (undefined :: M1 C c f ()), gToRow x) ]
+instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
+  gToRow (M1 x) = [ Object (conName (undefined :: C1 c f ())) (gToRow x) ]
 
-instance (Selector s, Typeable t, Show t) => GDBRow (M1 S s (K1 R t)) where
-  gToRow (M1 (K1 x)) = [Pair (selName (undefined :: M1 S s (K1 R t) ())) (show x)]
+--instance (GDBRow f) => GDBRow (M1 u s (C1 c f)) where
+  -- gToRow (M1 (K1 x)) = [ Pair (selName (undefined :: M1 S s (K1 R t) ())) (toColumn x) ]
+
+{-
+instance (Selector s, Column t) => GDBRow (M1 S s (K1 r t)) where
+  gToRow (M1 (K1 x)) = [ Pair (selName (undefined :: M1 S s (K1 r t) ())) (toColumn x) ]
+-}
+instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
+  gToRow (K1 x) = [ Pair "" (Right $ head $ toRow x) ]
+
+instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
+  gToRow (M1 x) = [ Pair (selName (undefined :: S1 s f ())) (Right $ head $ gToRow x) ]
 
 instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
   gToRow (f :*: g) = gToRow f ++ gToRow g
