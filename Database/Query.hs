@@ -131,7 +131,7 @@ type LQuery a = Query' a String
 all :: forall a. (Fields a, A.FromJSON a) => Query a
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
-    kvs    = flattenObject "" $ fields (Proxy :: Proxy a)
+    kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
     table  = take (length table' - 2) $ drop 1 table'
 

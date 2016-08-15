@@ -34,44 +34,51 @@ flattenObject prefix (Object cnst kvs) = concat
 -- Get fields only -------------------------------------------------------------
 
 class Fields a where
-  fields :: Proxy a -> Object
-  default fields :: (Generic a, GFields (Rep a)) => Proxy a -> Object
-  fields _ = gFields (undefined :: Rep a ())
+  fields :: Maybe a -> Object
+  default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object
+  fields (Just a) = gFields $ from a
+  fields Nothing  = gFields $ from (Nothing :: Maybe a)
 
 instance Fields Char where
-  fields _ = Value ""
+  fields Nothing  = Value ""
+  fields (Just v) = Value (show v)
 
 instance Fields String where
-  fields _ = Value ""
+  fields Nothing  = Value ""
+  fields (Just v) = Value ("'" ++ v ++ "'")
 
 instance Fields Int where
-  fields _ = Value ""
+  fields Nothing  = Value ""
+  fields (Just v) = Value (show v)
 
 class GFields f where
   gFields :: f a -> Object
 
 instance GFields f => GFields (D1 i f) where
-  gFields _ = gFields (undefined :: f ())
+  gFields (M1 x) = gFields x
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
-  gFields _ = Object (conName (undefined :: C1 c f ())) (get (gFields (undefined :: f ())))
+  gFields (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gFields x))
     where get (Object _ kvs) = kvs
           get Empty = []
           get _ = error "C1 returned Value"
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
-  gFields _ = Object "" [ (selName (undefined :: S1 c f ()), gFields (undefined :: f ()))]
+  gFields (M1 x) = Object "" [ (selName (undefined :: S1 c f ()), gFields x)]
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
-  gFields _ = fields (Proxy :: Proxy f)
+  gFields (K1 x) = fields (Just x)
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
-  gFields _ = Object "" (get (gFields (undefined :: f ())) ++ get (gFields (undefined :: g ())))
+  gFields (f :*: g) = Object "" (get (gFields f) ++ get (gFields g))
     where get (Object _ kvs) = kvs
           get Empty = []
           get _ = error "gToRow returned value"
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
+  -- gFields (L1 x) = gFields x
+  -- gFields (R1 x) = gFields x
+  -- gFields (L1 x) = Object "" (get (gFields (undefined :: f ())) ++ get (gFields (undefined :: g ())))
   gFields _ = Object "" (get (gFields (undefined :: f ())) ++ get (gFields (undefined :: g ())))
     where get (Object _ kvs) = kvs
           get Empty = []
