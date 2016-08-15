@@ -28,7 +28,7 @@ flattenObject prefix (Object cnst kvs) = concat
            | otherwise     = prefix ++ "_" ++ k' k i
 
     k' k i | null k        = show i
-           -- | ('_':ks) <- k = ks
+           | ('_':ks) <- k = ks
            | otherwise     = k
 
 -- Get fields only -------------------------------------------------------------

@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
@@ -127,8 +128,12 @@ deriving instance (Show l, Show a) => Show (Query' a l)
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: A.FromJSON a => Row -> Query a
-all = All ()
+all :: forall a. (Fields a, A.FromJSON a) => Query a
+all = All () (Row table [ k | (k, _) <- kvs ])
+  where
+    kvs    = flattenObject "" $ fields (Proxy :: Proxy a)
+    table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
+    table  = take (length table' - 2) $ drop 1 table'
 
 filter :: Expr a Bool -> Query a -> Query a
 filter = Filter ()
@@ -252,8 +257,8 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
-ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all (Row "person" ["name", "age"]))
-qr = all (Row "person" ["name", "age"])
+ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
+qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
 
@@ -264,7 +269,7 @@ q2 = sort (Fst (Fst ageE)) (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd age
 
 q2sql = fst $ foldQuerySql (labelQuery q2)
 
-allPersons = all (Row "person" ["name", "age"])
+allPersons = all
 
 simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
