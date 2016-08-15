@@ -20,6 +20,7 @@ import Data.Data
 import Data.IORef
 import Data.Maybe
 import Data.List                  (intersperse)
+import Data.Monoid                ((<>), mconcat)
 import Data.Ord
 
 import qualified Data.ByteString.Builder as B
@@ -342,12 +343,18 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-insertRow :: (A.ToJSON a, PS.ToRow a, Data a) => PS.Connection -> String -> a -> IO ()
+insertRow :: (A.ToJSON a, DBRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
-  let table  = map toLower $ dataTypeName $ dataTypeOf a
-      fields = constrFields $ toConstr a
-  void $ PS.execute conn "insert into ? (name, age) values (?, ?) " (PS.Only (PS.Many $ (PS.Plain (B.byteString $ B.pack table)):PS.toRow a))
-  void $ PS.execute conn "notify person, ?" (PS.Only $ A.toJSON a)
+  let kvs    = flattenObject "" $ toRow a
+      table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
+      table  = take (length table' - 2) $ drop 1 table'
+      stmt   = "insert into "
+            <> table
+            <> " (" <> mconcat (intersperse ", " [ k | (k, _) <- kvs ]) <> ")"
+            <> " values (" <> mconcat (intersperse ", " [ v | (_, v) <- kvs ]) <> ")"
+  print stmt
+  -- void $ PS.execute conn "insert into ? (name, age) values (?, ?) " (PS.Only (PS.Many $ (PS.Plain (B.byteString $ B.pack table)):PS.toRow a))
+  -- void $ PS.execute conn "notify person, ?" (PS.Only $ A.toJSON a)
 
 deriving instance Show PS.Notification
 

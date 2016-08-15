@@ -20,7 +20,7 @@ flattenObject prefix Empty     = []
 flattenObject prefix (Value v) = [(prefix, v)]
 flattenObject prefix (Object cnst kvs) = concat
   [ flattenObject (prefix' k i) v
-  | (i, (k, v)) <- zip [0..] (("cnst", Value cnst):kvs)
+  | (i, (k, v)) <- zip [0..] (("cnst", Value ("'" ++ cnst ++ "'")):kvs)
   ]
   where
     prefix' k i
@@ -28,7 +28,7 @@ flattenObject prefix (Object cnst kvs) = concat
            | otherwise     = prefix ++ "_" ++ k' k i
 
     k' k i | null k        = show i
-           | ('_':ks) <- k = ks
+           -- | ('_':ks) <- k = ks
            | otherwise     = k
 
 -- Get fields only -------------------------------------------------------------
@@ -94,7 +94,7 @@ instance DBRow Char where
   toRow x = Value (show x)
 
 instance DBRow String where
-  toRow x = Value (show x)
+  toRow x = Value ("'" ++ x ++ "'")
 
 instance DBRow Int where
   toRow x = Value (show x)
