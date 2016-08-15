@@ -1,13 +1,9 @@
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
@@ -43,8 +39,10 @@ import qualified Database.PostgreSQL.Simple.Notification as PS
 import Database.PostgreSQL.Simple.Types ((:.)(..))
 import qualified Database.PostgreSQL.Simple.FromRow as PS
 
-import GHC.Generics
 import System.IO.Unsafe
+
+import GHC.Generics
+import Database.Generic
 
 import Debug.Trace
 
@@ -343,111 +341,6 @@ fillCaches conn (Join l a ql qr) = do
 
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
-
-data Object = Empty | Value String | Object String [(String, Object)] deriving Show
-
-flattenObject :: String -> Object -> [(String, String)]
-flattenObject prefix Empty     = []
-flattenObject prefix (Value v) = [(prefix, v)]
-flattenObject prefix (Object cnst kvs) = concat
-  [ flattenObject (prefix' k i) v
-  | (i, (k, v)) <- zip [0..] (("cnst", Value cnst):kvs)
-  ]
-  where
-    prefix' k i
-           | null prefix   = k' k i
-           | otherwise     = prefix ++ "_" ++ k' k i
-
-    k' k i | null k        = show i
-           | ('_':ks) <- k = ks
-           | otherwise     = k
-
-class Fields a where
-  fields :: Proxy a -> [String]
-  default fields :: (Generic a, GFields (Rep a)) => Proxy a -> [String]
-  fields _ = gFields (undefined :: Rep a ())
-
-instance Fields Char where
-  fields _ = []
-
-instance Fields String where
-  fields _ = []
-
-instance Fields Int where
-  fields _ = []
-
-class GFields f where
-  gFields :: f a -> [String]
-
-instance GFields f => GFields (D1 i f) where
-  gFields _ = gFields (undefined :: f ())
-
-instance GFields f => GFields (C1 c f) where
-  gFields _ = gFields (undefined :: f ())
-
-instance (Selector c, GFields f) => GFields (S1 c f) where
-  gFields _ = [selName (undefined :: S1 c f ())] ++ gFields (undefined :: f ())
-
-instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
-  gFields _ = fields (Proxy :: Proxy f)
-
-instance (GFields f, GFields g) => GFields (f :*: g) where
-  gFields _ = gFields (undefined :: f ()) ++ gFields (undefined :: g ())
-
-instance (GFields f, GFields g) => GFields (f :+: g) where
-  gFields _ = gFields (undefined :: f ()) ++ gFields (undefined :: g ())
-
-instance GFields U1 where
-  gFields _ = []
-
-class SDBRow a where
-  toRow :: a -> Object
-  default toRow :: (Generic a, GDBRow (Rep a)) => a -> Object
-  toRow = gToRow . from
-
-instance (SDBRow a, SDBRow b) => SDBRow (a, b) where
-  toRow (a, b) = Object "," [("fst", toRow a), ("snd", toRow b)]
-
-instance SDBRow Char where
-  toRow x = Value (show x)
-
-instance SDBRow String where
-  toRow x = Value (show x)
-
-instance SDBRow Int where
-  toRow x = Value (show x)
-
-class GDBRow f where
-  gToRow :: f a -> Object
-  -- gFromRow :: (Int, [(String, String)]) -> Maybe a
-
-instance GDBRow U1 where
-  gToRow U1 = Empty
-
-instance GDBRow f => GDBRow (D1 i f) where
-  gToRow (M1 x) = gToRow x
-
-instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
-  gToRow (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gToRow x))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "C1 returned Value"
-
-instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
-  gToRow (M1 x) = Object "" [ (selName (undefined :: S1 s f ()), gToRow x) ]
-
-instance (GDBRow (Rep f), SDBRow f) => GDBRow (K1 R f) where
-  gToRow (K1 x) = toRow x
-
-instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
-  gToRow (f :*: g) = Object "" (get (gToRow f) ++ get (gToRow g))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "gToRow returned value"
-
-instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
-  gToRow (L1 x) = gToRow x
-  gToRow (R1 x) = gToRow x
 
 insertRow :: (A.ToJSON a, PS.ToRow a, Data a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do

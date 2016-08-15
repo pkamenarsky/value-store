@@ -21,6 +21,7 @@ library
                      , Database.Value.PSet
                      , Database.Value.VTM
                      , Database.Query
+                     , Database.Generic
   -- other-modules:       
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric
   build-depends:       base >=4.7 && <5
