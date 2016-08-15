@@ -10,7 +10,10 @@ import Data.Proxy
 
 import GHC.Generics
 
-data Object = Empty | Value String | Object String [(String, Object)] deriving Show
+data Object = Empty
+            | Value String
+            | Object String [(String, Object)]
+            deriving Show
 
 flattenObject :: String -> Object -> [(String, String)]
 flattenObject prefix Empty     = []
@@ -27,6 +30,8 @@ flattenObject prefix (Object cnst kvs) = concat
     k' k i | null k        = show i
            | ('_':ks) <- k = ks
            | otherwise     = k
+
+-- Get fields only -------------------------------------------------------------
 
 class Fields a where
   fields :: Proxy a -> Object
@@ -74,6 +79,8 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
 
 instance GFields U1 where
   gFields _ = Empty
+
+-- Get fields and values -------------------------------------------------------
 
 class DBRow a where
   toRow :: a -> Object
@@ -123,4 +130,3 @@ instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
 instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
   gToRow (L1 x) = gToRow x
   gToRow (R1 x) = gToRow x
-
