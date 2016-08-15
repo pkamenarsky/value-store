@@ -196,11 +196,14 @@ instance A.FromJSON Person
 instance A.ToJSON Person
 
 instance SDBRow Person
+instance Fields Person
 instance SDBRow Address
+instance Fields Address
 
 data Image = Horizontal | Vertical Person String deriving Generic
 
 instance SDBRow Image
+instance Fields Image
 
 nameE :: Expr Person String
 nameE = Fld "name" _name
@@ -358,6 +361,44 @@ flattenObject prefix (Object cnst kvs) = concat
     k' k i | null k        = show i
            | ('_':ks) <- k = ks
            | otherwise     = k
+
+class Fields a where
+  fields :: Proxy a -> [String]
+  default fields :: (Generic a, GFields (Rep a)) => Proxy a -> [String]
+  fields _ = gFields (undefined :: Rep a ())
+
+instance Fields Char where
+  fields _ = []
+
+instance Fields String where
+  fields _ = []
+
+instance Fields Int where
+  fields _ = []
+
+class GFields f where
+  gFields :: f a -> [String]
+
+instance GFields f => GFields (D1 i f) where
+  gFields _ = gFields (undefined :: f ())
+
+instance GFields f => GFields (C1 c f) where
+  gFields _ = gFields (undefined :: f ())
+
+instance (Selector c, GFields f) => GFields (S1 c f) where
+  gFields _ = [selName (undefined :: S1 c f ())] ++ gFields (undefined :: f ())
+
+instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
+  gFields _ = fields (Proxy :: Proxy f)
+
+instance (GFields f, GFields g) => GFields (f :*: g) where
+  gFields _ = gFields (undefined :: f ()) ++ gFields (undefined :: g ())
+
+instance (GFields f, GFields g) => GFields (f :+: g) where
+  gFields _ = gFields (undefined :: f ()) ++ gFields (undefined :: g ())
+
+instance GFields U1 where
+  gFields _ = []
 
 class SDBRow a where
   toRow :: a -> Object
