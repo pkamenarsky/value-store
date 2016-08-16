@@ -72,7 +72,7 @@ instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
 
-getColumn :: Monad m => PS.Row -> Object a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
+getColumn :: Monad m => PS.Row -> a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
 getColumn r@(PS.Row{..}) obj = do
   let unCol (PQ.Col x) = fromIntegral x :: Int
   column <- get
@@ -109,8 +109,8 @@ getColumn r@(PS.Row{..}) obj = do
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = PS.RP $ do
     row <- ask
-    obj <- lift $ traverse (getColumn row) (Empty)
-    case (cnst obj) of
+    obj <- lift $ traverse (getColumn row) (fields (Nothing :: Maybe a))
+    case cnst obj of
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
