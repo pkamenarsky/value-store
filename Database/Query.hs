@@ -199,14 +199,11 @@ instance PS.ToRow Person
 instance A.FromJSON Person
 instance A.ToJSON Person
 
-instance DBRow Person
 instance Fields Person
-instance DBRow Address
 instance Fields Address
 
 data Image = Horizontal | Vertical Person String deriving Generic
 
-instance DBRow Image
 instance Fields Image
 
 nameE :: Expr Person String
@@ -348,9 +345,9 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
-insertRow :: (A.ToJSON a, DBRow a) => PS.Connection -> String -> a -> IO ()
+insertRow :: (A.ToJSON a, Fields a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
-  let kvs    = flattenObject "" $ toRow a
+  let kvs    = flattenObject "" $ fields (Just a)
       table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
       table  = take (length table' - 2) $ drop 1 table'
       stmt   = "insert into "

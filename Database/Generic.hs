@@ -31,13 +31,18 @@ flattenObject prefix (Object cnst kvs) = concat
            | ('_':ks) <- k = ks
            | otherwise     = k
 
--- Get fields only -------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+getkvs :: Object -> [(String, Object)]
+getkvs (Object _ kvs) = kvs
+getkvs Empty          = []
+getkvs _              = error "getkvs: Value"
 
 class Fields a where
   fields :: Maybe a -> Object
   default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object
-  fields (Just a) = gFields $ from a
-  fields Nothing  = gFields $ from (Nothing :: Maybe a)
+  fields (Just a) = gFields $ Just $ from a
+  fields Nothing  = gFields $ (Nothing :: Maybe (Rep a ()))
 
 instance Fields Char where
   fields Nothing  = Value ""
@@ -52,88 +57,32 @@ instance Fields Int where
   fields (Just v) = Value (show v)
 
 class GFields f where
-  gFields :: f a -> Object
+  gFields :: Maybe (f a) -> Object
 
 instance GFields f => GFields (D1 i f) where
-  gFields (M1 x) = gFields x
+  gFields (Just (M1 x)) = gFields (Just x)
+  gFields Nothing = gFields (Nothing :: Maybe (f ()))
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
-  gFields (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gFields x))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "C1 returned Value"
+  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Just x)))
+  gFields Nothing = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Nothing :: Maybe (f ()))))
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
-  gFields (M1 x) = Object "" [ (selName (undefined :: S1 c f ()), gFields x)]
+  gFields (Just (M1 x)) = Object "" [ (selName (undefined :: S1 c f ()), gFields (Just x))]
+  gFields Nothing = Object "" [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
-  gFields (K1 x) = fields (Just x)
+  gFields (Just (K1 x)) = fields (Just x)
+  gFields Nothing = fields (Nothing :: Maybe f)
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
-  gFields (f :*: g) = Object "" (get (gFields f) ++ get (gFields g))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "gToRow returned value"
+  gFields (Just (f :*: g)) = Object "" (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
+  gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
-  -- gFields (L1 x) = gFields x
-  -- gFields (R1 x) = gFields x
-  -- gFields (L1 x) = Object "" (get (gFields (undefined :: f ())) ++ get (gFields (undefined :: g ())))
-  gFields _ = Object "" (get (gFields (undefined :: f ())) ++ get (gFields (undefined :: g ())))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "gToRow returned value"
+  gFields (Just (L1 x)) = gFields (Just x)
+  gFields (Just (R1 x)) = gFields (Just x)
+  gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
 
 instance GFields U1 where
   gFields _ = Empty
-
--- Get fields and values -------------------------------------------------------
-
-class DBRow a where
-  toRow :: a -> Object
-  default toRow :: (Generic a, GDBRow (Rep a)) => a -> Object
-  toRow = gToRow . from
-
-instance (DBRow a, DBRow b) => DBRow (a, b) where
-  toRow (a, b) = Object "," [("fst", toRow a), ("snd", toRow b)]
-
-instance DBRow Char where
-  toRow x = Value (show x)
-
-instance DBRow String where
-  toRow x = Value ("'" ++ x ++ "'")
-
-instance DBRow Int where
-  toRow x = Value (show x)
-
-class GDBRow f where
-  gToRow :: f a -> Object
-  -- gFromRow :: (Int, [(String, String)]) -> Maybe a
-
-instance GDBRow U1 where
-  gToRow U1 = Empty
-
-instance GDBRow f => GDBRow (D1 i f) where
-  gToRow (M1 x) = gToRow x
-
-instance (GDBRow f, Constructor c) => GDBRow (C1 c f) where
-  gToRow (M1 x) = Object (conName (undefined :: C1 c f ())) (get (gToRow x))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "C1 returned Value"
-
-instance (Selector s, GDBRow f) => GDBRow (S1 s f) where
-  gToRow (M1 x) = Object "" [ (selName (undefined :: S1 s f ()), gToRow x) ]
-
-instance (GDBRow (Rep f), DBRow f) => GDBRow (K1 R f) where
-  gToRow (K1 x) = toRow x
-
-instance (GDBRow f, GDBRow g) => GDBRow (f :*: g) where
-  gToRow (f :*: g) = Object "" (get (gToRow f) ++ get (gToRow g))
-    where get (Object _ kvs) = kvs
-          get Empty = []
-          get _ = error "gToRow returned value"
-
-instance (GDBRow f, GDBRow g) => GDBRow (f :+: g) where
-  gToRow (L1 x) = gToRow x
-  gToRow (R1 x) = gToRow x
