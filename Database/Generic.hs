@@ -1,8 +1,10 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
@@ -17,6 +19,7 @@ import Control.Monad.Trans.State.Strict
 import Data.Proxy
 
 import GHC.Generics
+import System.IO.Unsafe
 
 import qualified Data.ByteString as B
 
@@ -69,14 +72,44 @@ instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
 
-getColumn :: Monad m => Object a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
-getColumn obj = do
-  return (undefined, undefined)
+getColumn :: Monad m => PS.Row -> Object a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
+getColumn r@(PS.Row{..}) obj = do
+  let unCol (PQ.Col x) = fromIntegral x :: Int
+  column <- get
+  put (column + 1)
+  let ncols = unsafeDupablePerformIO (PQ.nfields rowresult)
+  if (column >= ncols)
+  then do
+      {-
+      vals <- mapM (getTypenameByCol r) [0..ncols-1]
+      let err = ConversionFailed
+              (show (unCol ncols) ++ " values: " ++ show (map ellipsis vals))
+              Nothing
+              ""
+              ("at least " ++ show (unCol column + 1)
+                ++ " slots in target type")
+              "mismatch between number of columns to \
+              \convert and number in target type"
+      -}
+      let err = PS.ConversionFailed
+              ""
+              Nothing
+              ""
+              ""
+              "mismatch between number of columns to \
+              \convert and number in target type"
+      error $ show err
+  else do
+    let !result = rowresult
+        !typeOid = unsafeDupablePerformIO (PQ.ftype result column)
+        !field = PS.Field{..}
+        !value = unsafeDupablePerformIO (PQ.getvalue result row column)
+    return (field, value)
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = PS.RP $ do
     row <- ask
-    obj <- lift $ traverse getColumn (Empty)
+    obj <- lift $ traverse (getColumn row) (Empty)
     case (cnst obj) of
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
