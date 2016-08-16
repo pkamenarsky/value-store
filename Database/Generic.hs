@@ -85,8 +85,10 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
   gCnst _ = Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
+  gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gFields (Just (M1 x)) = Object "" [ (selName (undefined :: S1 c f ()), gFields (Just x))]
   gFields Nothing = Object "" [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
+  gCnst _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gCnst obj@(Object _ kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = M1 <$> gCnst v
   gCnst _ = Nothing
