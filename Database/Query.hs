@@ -397,13 +397,13 @@ test = do
   let rec = (Person "john" 222)
 
   -- insertRow conn "person" rec
-  PS.execute conn "insert into person (cnst, name, age) values (?, ?, ?)" rec
+  -- PS.execute conn "insert into person (cnst, name, age) values (?, ?, ?)" rec
 
   let rec2 = (Address "doom" rec)
 
   -- insertRow conn "person" rec
-  PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
-  print $ evalState (mapM (const genVar) (fields (Nothing :: Maybe Address))) 0
+  -- PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
+  print $ evalState (traverse (const genVar) (fields (Nothing :: Maybe Address))) 0
 
   as <- PS.query_ conn "select * from address" :: IO [Address]
 
