@@ -22,6 +22,7 @@ import GHC.Generics
 import System.IO.Unsafe
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 
 import qualified Database.PostgreSQL.Simple.FromField as PS
 import qualified Database.PostgreSQL.Simple.ToField as PS
@@ -138,8 +139,8 @@ instance GFields f => GFields (D1 i f) where
   gCnst obj = fmap M1 <$> gCnst obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
-  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Just x)))
-  gFields Nothing = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Nothing :: Maybe (f ()))))
+  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
+  gFields Nothing = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Nothing :: Maybe (f ()))))
   gCnst obj@(Object cnst _)
     | cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
