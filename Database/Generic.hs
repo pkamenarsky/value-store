@@ -11,6 +11,8 @@
 module Database.Generic where
 
 import Control.Monad.Trans
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State.Strict
 
 import Data.Proxy
 
@@ -21,6 +23,8 @@ import qualified Data.ByteString as B
 import qualified Database.PostgreSQL.Simple.FromField as PS
 import qualified Database.PostgreSQL.Simple.FromRow as PS
 import qualified Database.PostgreSQL.Simple.Internal as PS
+
+import qualified Database.PostgreSQL.LibPQ as PQ
 
 data Object a = Empty
               | Value a
@@ -65,10 +69,17 @@ instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
 
+getColumn :: Monad m => Object a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
+getColumn obj = do
+  return (undefined, undefined)
+
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
-  fromRow = PS.RP $ case (cnst undefined) of
-    Just x  -> lift $ lift x
-    Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
+  fromRow = PS.RP $ do
+    row <- ask
+    obj <- lift $ traverse getColumn (Empty)
+    case (cnst obj) of
+      Just x  -> lift $ lift x
+      Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
 {-
 instance (Fields a, Fields b) => Fields (a, b) where

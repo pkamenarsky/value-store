@@ -27,6 +27,7 @@ library
   build-depends:       base >=4.7 && <5
                      , bytestring
                      , postgresql-simple
+                     , postgresql-libpq
                      , mtl
                      , transformers
                      , aeson >=0.10
