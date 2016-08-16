@@ -193,9 +193,6 @@ data Person = Person { _name :: String, _age :: Int } deriving (Generic, Typeabl
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Data, Show)
 
-instance PS.FromRow Person
-instance PS.ToRow Person
-
 instance A.FromJSON Person
 instance A.ToJSON Person
 
@@ -394,12 +391,18 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  rs <- query conn simplejoin (traceIO . show)
+  -- rs <- query conn simplejoin (traceIO . show)
   -- traceIO $ show rs
 
-  let rec = (Person "john" 111)
+  let rec = (Person "john" 222)
 
-  insertRow conn "person" rec
+  -- insertRow conn "person" rec
+  PS.execute conn "insert into person (cnst, name, age) values (?, ?, ?)" rec
+
+  let rec2 = (Address "doom" rec)
+
+  -- insertRow conn "person" rec
+  PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
 
   return ()
 

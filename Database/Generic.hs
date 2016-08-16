@@ -162,8 +162,10 @@ instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object "" (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
   gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
-  -- gCnst obj = (:*:) <$> gCnst obj <*> gCnst obj
-  gCnst obj = undefined
+  gCnst obj = do
+    a <- gCnst obj
+    b <- gCnst obj
+    return $ fmap (:*:) a <*> b
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
