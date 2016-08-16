@@ -24,7 +24,9 @@ import System.IO.Unsafe
 import qualified Data.ByteString as B
 
 import qualified Database.PostgreSQL.Simple.FromField as PS
+import qualified Database.PostgreSQL.Simple.ToField as PS
 import qualified Database.PostgreSQL.Simple.FromRow as PS
+import qualified Database.PostgreSQL.Simple.ToRow as PS
 import qualified Database.PostgreSQL.Simple.Internal as PS
 
 import qualified Database.PostgreSQL.LibPQ as PQ
@@ -34,12 +36,12 @@ data Object a = Empty
               | Object String [(String, Object a)]
               deriving (Show, Functor, Foldable, Traversable)
 
-flattenObject :: String -> Object String -> [(String, String)]
+flattenObject :: String -> Object a -> [(String, a)]
 flattenObject prefix Empty     = []
 flattenObject prefix (Value v) = [(prefix, v)]
 flattenObject prefix (Object cnst kvs) = concat
   [ flattenObject (prefix' k i) v
-  | (i, (k, v)) <- zip [0..] (("cnst", Value ("'" ++ cnst ++ "'")):kvs)
+  | (i, (k, v)) <- zip [0..] kvs
   ]
   where
     prefix' k i
@@ -58,8 +60,8 @@ getkvs Empty          = []
 getkvs _              = error "getkvs: Value"
 
 class Fields a where
-  fields :: Maybe a -> Object String
-  default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object String
+  fields :: Maybe a -> Object PS.Action
+  default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object PS.Action
   fields (Just a) = gFields $ Just $ from a
   fields Nothing  = gFields $ (Nothing :: Maybe (Rep a ()))
 
@@ -67,8 +69,12 @@ class Fields a where
   default cnst :: (Generic a, GFields (Rep a)) => Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
   cnst obj = fmap to <$> gCnst obj
 
-instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
-  fields _ = error "overlapping"
+instance PS.ToField Char where
+  toField x = PS.toField [x]
+
+instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
+  fields (Just v) = Value (PS.toField v)
+  fields Nothing  = Empty
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
 
@@ -114,13 +120,16 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
+instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
+  toRow v = map snd $ flattenObject "" $ fields (Just v)
+
 {-
 instance (Fields a, Fields b) => Fields (a, b) where
   fields (Just (a, b)) = (,) <$> (fields (Just a) ++ fields (Just b))
 -}
 
 class GFields f where
-  gFields :: Maybe (f a) -> Object String
+  gFields :: Maybe (f a) -> Object PS.Action
   gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
 
 instance GFields f => GFields (D1 i f) where

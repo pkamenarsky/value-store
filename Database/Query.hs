@@ -131,7 +131,7 @@ type LQuery a = Query' a String
 all :: forall a. (Fields a, A.FromJSON a) => Query a
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
-    kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
+    kvs    = undefined -- flattenObject "" $ fields (Nothing :: Maybe a)
     table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
     table  = take (length table' - 2) $ drop 1 table'
 
@@ -350,7 +350,7 @@ mkRowParser = undefined
 
 insertRow :: (A.ToJSON a, Fields a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
-  let kvs    = flattenObject "" $ fields (Just a)
+  let kvs    = undefined -- flattenObject "" $ fields (Just a)
       table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
       table  = take (length table' - 2) $ drop 1 table'
       stmt   = "insert into "
