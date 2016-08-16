@@ -202,7 +202,7 @@ instance A.ToJSON Person
 instance Fields Person
 instance Fields Address
 
-data Image = Horizontal | Vertical Person String deriving Generic
+data Image = Horizontal | Vertical Person String deriving (Generic, Show)
 
 instance Fields Image
 

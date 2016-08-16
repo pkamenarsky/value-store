@@ -38,6 +38,8 @@ getkvs (Object _ kvs) = kvs
 getkvs Empty          = []
 getkvs _              = error "getkvs: Value"
 
+-- TODO: count in g* or disallow empty selectors
+
 class Fields a where
   fields :: Maybe a -> Object
   default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object
