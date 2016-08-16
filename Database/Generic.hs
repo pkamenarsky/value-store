@@ -32,15 +32,17 @@ import qualified Database.PostgreSQL.Simple.Internal as PS
 
 import qualified Database.PostgreSQL.LibPQ as PQ
 
+import Debug.Trace
+
 data Object a = Empty
               | Value a
-              | Object String [(String, Object a)]
+              | Object [(String, Object a)]
               deriving (Show, Functor, Foldable, Traversable)
 
 flattenObject :: String -> Object a -> [(String, a)]
 flattenObject prefix Empty     = []
 flattenObject prefix (Value v) = [(prefix, v)]
-flattenObject prefix (Object cnst kvs) = concat
+flattenObject prefix (Object kvs) = concat
   [ flattenObject (prefix' k i) v
   | (i, (k, v)) <- zip [0..] kvs
   ]
@@ -56,9 +58,9 @@ flattenObject prefix (Object cnst kvs) = concat
 --------------------------------------------------------------------------------
 
 getkvs :: Object a -> [(String, Object a)]
-getkvs (Object _ kvs) = kvs
-getkvs Empty          = []
-getkvs _              = error "getkvs: Value"
+getkvs (Object kvs) = kvs
+getkvs Empty        = []
+getkvs _            = error "getkvs: Value"
 
 class Fields a where
   fields :: Maybe a -> Object PS.Action
@@ -113,11 +115,13 @@ getColumn r@(PS.Row{..}) obj = do
         !value = unsafeDupablePerformIO (PQ.getvalue result row column)
     return (field, value)
 
+deriving instance Show PS.Field
+
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = PS.RP $ do
     row <- ask
     obj <- lift $ traverse (getColumn row) (fields (Nothing :: Maybe a))
-    case cnst obj of
+    case cnst $ (\x -> trace (show x) x ) $ obj of
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
@@ -139,18 +143,19 @@ instance GFields f => GFields (D1 i f) where
   gCnst obj = fmap M1 <$> gCnst obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
-  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
-  gFields Nothing = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Nothing :: Maybe (f ()))))
-  gCnst obj@(Object cnst _)
-    | cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
+  gFields (Just (M1 x)) = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
+  gFields Nothing = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Nothing :: Maybe (f ()))))
+  gCnst obj@(Object kvs)
+    | Just (Value (_, Just cnst)) <- lookup "cnst" kvs
+    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
-  gFields (Just (M1 x)) = Object "" [ (selName (undefined :: S1 c f ()), gFields (Just x))]
-  gFields Nothing = Object "" [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
+  gFields (Just (M1 x)) = Object [ (selName (undefined :: S1 c f ()), gFields (Just x))]
+  gFields Nothing = Object [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
   gCnst _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
-  gCnst obj@(Object _ kvs)
+  gCnst obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnst v
   gCnst _ = Nothing
 
@@ -160,8 +165,8 @@ instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gCnst obj = fmap K1 <$> cnst obj
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
-  gFields (Just (f :*: g)) = Object "" (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
-  gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
+  gFields (Just (f :*: g)) = Object (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
+  gFields Nothing = Object (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
   gCnst obj = do
     a <- gCnst obj
     b <- gCnst obj
@@ -170,11 +175,11 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
   gFields (Just (R1 x)) = gFields (Just x)
-  gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
+  gFields Nothing = Object (getkvs (gFields (Nothing :: Maybe (f ()))) ++ filter ((/= "cnst") . fst) (getkvs (gFields (Nothing :: Maybe (g ())))))
   gCnst obj
     | Just x <- fmap L1 <$> gCnst obj = Just x
     | Just x <- fmap R1 <$> gCnst obj = Just x
-    | otherwise = Nothing
+  gCnst _ = Nothing
 
 instance GFields U1 where
   gFields _ = Empty

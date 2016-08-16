@@ -189,7 +189,8 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
 
-data Person = Person { _name :: String, _age :: Int } deriving (Generic, Typeable, Data, Show)
+data Person = Person { _name :: String, _age :: Int }
+            | Robot { _ai :: Bool } deriving (Generic, Typeable, Data, Show)
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Data, Show)
 
@@ -394,16 +395,17 @@ test = do
   -- rs <- query conn simplejoin (traceIO . show)
   -- traceIO $ show rs
 
-  let rec = (Person "john" 222)
+  let rec  = (Person "john" 222)
+      recr = Robot True
 
   -- insertRow conn "person" rec
   -- PS.execute conn "insert into person (cnst, name, age) values (?, ?, ?)" rec
 
-  let rec2 = (Address "doom" rec)
+  let rec2 = (Address "doom" recr)
 
   -- insertRow conn "person" rec
   -- PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
-  print $ evalState (traverse (const genVar) (fields (Nothing :: Maybe Address))) 0
+  -- PS.execute conn "insert into address (cnst, street, person_cnst, person_ai) values (?, ?, ?, ?)" rec2
 
   as <- PS.query_ conn "select * from address" :: IO [Address]
 
