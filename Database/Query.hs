@@ -345,6 +345,9 @@ fillCaches conn (Join l a ql qr) = do
 listen :: (String -> A.Value -> IO ()) -> IO ()
 listen = undefined
 
+mkRowParser :: Fields a => PS.RowParser a
+mkRowParser = undefined
+
 insertRow :: (A.ToJSON a, Fields a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
   let kvs    = flattenObject "" $ fields (Just a)

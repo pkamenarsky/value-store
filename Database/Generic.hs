@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Database.Generic where
 
@@ -10,12 +11,15 @@ import Data.Proxy
 
 import GHC.Generics
 
-data Object = Empty
-            | Value String
-            | Object String [(String, Object)]
-            deriving Show
+import qualified Database.PostgreSQL.Simple.FromField as PS
+import qualified Database.PostgreSQL.Simple.FromRow as PS
 
-flattenObject :: String -> Object -> [(String, String)]
+data Object a = Empty
+              | Value a
+              | Object String [(String, Object a)]
+              deriving Show
+
+flattenObject :: String -> Object String -> [(String, String)]
 flattenObject prefix Empty     = []
 flattenObject prefix (Value v) = [(prefix, v)]
 flattenObject prefix (Object cnst kvs) = concat
@@ -33,7 +37,7 @@ flattenObject prefix (Object cnst kvs) = concat
 
 --------------------------------------------------------------------------------
 
-getkvs :: Object -> [(String, Object)]
+getkvs :: Object a -> [(String, Object a)]
 getkvs (Object _ kvs) = kvs
 getkvs Empty          = []
 getkvs _              = error "getkvs: Value"
@@ -41,13 +45,13 @@ getkvs _              = error "getkvs: Value"
 -- TODO: count in g* or disallow empty selectors
 
 class Fields a where
-  fields :: Maybe a -> Object
-  default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object
+  fields :: Maybe a -> Object String
+  default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object String
   fields (Just a) = gFields $ Just $ from a
   fields Nothing  = gFields $ (Nothing :: Maybe (Rep a ()))
 
-  cnst :: Object -> Maybe a
-  default cnst :: (Generic a, GFields (Rep a)) => Object -> Maybe a
+  cnst :: Object String -> Maybe (PS.ConvArray
+  default cnst :: (Generic a, GFields (Rep a)) => Object String -> Maybe a
   cnst obj = to <$> gCnst obj
 
 instance Fields Char where
@@ -68,9 +72,21 @@ instance Fields Int where
   cnst (Value v) = Just $ read v
   cnst _ = Nothing
 
+instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
+  fields _ = error "overlapping"
+  cnst _ = error ""
+
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
+  fromRow = undefined
+
+{-
+instance (Fields a, Fields b) => Fields (a, b) where
+  fields (Just (a, b)) = (,) <$> (fields (Just a) ++ fields (Just b))
+-}
+
 class GFields f where
-  gFields :: Maybe (f a) -> Object
-  gCnst :: Object -> Maybe (f a)
+  gFields :: Maybe (f a) -> Object String
+  gCnst :: Object String -> Maybe (f a)
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
