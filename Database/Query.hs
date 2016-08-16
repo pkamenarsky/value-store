@@ -17,7 +17,7 @@ import Control.Concurrent
 import qualified Data.Aeson as A
 
 import Data.Char
-import Data.Data
+import Data.Typeable
 import Data.IORef
 import Data.Maybe
 import Data.List                  (intersperse)
@@ -63,15 +63,15 @@ insertBy' cmp x ys@(y:ys') i
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
 data Expr r a where
-  -- (:+:) :: Expr a b -> Expr b c -> Expr a c
+  (:+:) :: Expr a b -> Expr b c -> Expr a c
   Cnst  :: Show a => a -> Expr r a
   Fld   :: String -> (r -> a) -> Expr r a
   Fst   :: Show a => Expr r a -> Expr (r :. s) a
   Snd   :: Show a => Expr s a -> Expr (r :. s) a
   And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt   :: Expr r Int -> Expr r Int -> Expr r Bool
-  Eqs   :: Expr r Int -> Expr r Int -> Expr r Bool
-  Plus  :: Expr r Int -> Expr r Int -> Expr r Int
+  Grt   :: Ord a => Expr r a -> Expr r a -> Expr r Bool
+  Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
+  Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
 
 instance Show (a -> b) where
   show _ = "(a -> b)"
@@ -102,6 +102,8 @@ lookupVar ctx name =
 foldExprSql :: Ctx -> Expr r a -> String
 foldExprSql ctx (Cnst a) = show a
 foldExprSql ctx (Fld name _) = lookupVar ctx name
+foldExprSql ctx (Fld name _ :+: Fld name' _) = lookupVar ctx (name ++ "_" ++ name')
+foldExprSql ctx (_ :+: _) = "Can compose only fields"
 foldExprSql ctx (Fst q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (F:ps) <- [p] ] q
 foldExprSql ctx (Snd q) = foldExprSql [ (ps, a, v) | (p, a, v) <- ctx, (S:ps) <- [p] ] q
 foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprSql ctx b
@@ -129,12 +131,11 @@ deriving instance (Show l, Show a) => Show (Query' a l)
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Fields a, A.FromJSON a) => Query a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
-    kvs    = undefined -- flattenObject "" $ fields (Nothing :: Maybe a)
-    table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
-    table  = take (length table' - 2) $ drop 1 table'
+    kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
+    table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
 filter :: Expr a Bool -> Query a -> Query a
 filter = Filter ()
@@ -161,6 +162,7 @@ labelQuery expr = evalState (traverse (const genVar) expr) 0
 substFst :: Expr (l :. r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
+substFst (_ :+: _ ) sub = error "Invalid field access"
 substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
@@ -171,6 +173,7 @@ substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 substSnd :: Expr (l :. r) a -> r -> Expr l a
 substSnd (Cnst a) sub = Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
+substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
 substSnd (Snd f) sub = Cnst (foldExpr f sub)
 substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
@@ -181,6 +184,7 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
 foldExpr (Fld _ get) = get
+foldExpr (f :+: g) = foldExpr g . foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
@@ -192,9 +196,9 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
-            | Undead { _kills :: Int } deriving (Generic, Typeable, Data, Show)
+            | Undead { _kills :: Int } deriving (Generic, Typeable, Show)
 
-data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Data, Show)
+data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
 instance A.FromJSON Person
 instance A.ToJSON Person
@@ -215,11 +219,14 @@ nameE = Fld "name" _name
 ageE :: Expr Person Int
 ageE = Fld "age" _age
 
-expr :: Expr Person Bool
-expr = (ageE `Plus` Cnst 5) `Grt` (Cnst 6)
+aiE :: Expr Person Bool
+aiE = Fld "ai" _ai
 
--- te' :: Expr ((Person, Person), Person) Bool
-te' = (Fst (Fst ageE) `Grt` (Snd ageE)) `And` (Fst (Snd ageE) `Grt` Cnst 6)
+personE :: Expr Address Person
+personE = Fld "person" _person
+
+streetE :: Expr Address String
+streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
 
@@ -351,18 +358,17 @@ listen = undefined
 mkRowParser :: Fields a => PS.RowParser a
 mkRowParser = undefined
 
-insertRow :: (A.ToJSON a, Fields a) => PS.Connection -> String -> a -> IO ()
+insertRow :: forall a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn col a = do
-  let kvs    = undefined -- flattenObject "" $ fields (Just a)
-      table' = fromMaybe (error "No constructor for DBRow") $ map toLower <$> lookup "cnst" kvs
-      table  = take (length table' - 2) $ drop 1 table'
+  let kvs    = flattenObject "" $ fields (Just a)
+      table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " [ k | (k, _) <- kvs ]) <> ")"
-            <> " values (" <> mconcat (intersperse ", " [ v | (_, v) <- kvs ]) <> ")"
+            <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
   print stmt
-  -- void $ PS.execute conn "insert into ? (name, age) values (?, ?) " (PS.Only (PS.Many $ (PS.Plain (B.byteString $ B.pack table)):PS.toRow a))
-  -- void $ PS.execute conn "notify person, ?" (PS.Only $ A.toJSON a)
+  void $ PS.execute conn (PS.Query $ B.pack stmt) a
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON a)
 
 deriving instance Show PS.Notification
 
@@ -381,14 +387,11 @@ query conn q cb = do
     traceIO $ "NOT: " ++ show nt
     case A.decode (BL.fromStrict $ PS.notificationData nt) of
       Just a -> do
-        -- traceIO "DECODED"
-        -- traceIO $ show a
         (sf, pq) <- passesQuery conn cq (DBValue (B.unpack $ PS.notificationChannel nt) a)
         case sf of
           Unsorted -> modifyIORef rr (++ (map snd pq))
           SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
         readIORef rr >>= cb
-        -- traceIO $ show pq
       Nothing -> do
         return ()
   return rs
@@ -397,24 +400,19 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  -- rs <- query conn simplejoin (traceIO . show)
-  -- traceIO $ show rs
+  {-
+  rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  traceIO $ show rs
+  -}
 
   let rec  = (Person "john" 222)
       recr = Robot True
 
-  -- insertRow conn "person" rec
-  -- PS.execute conn "insert into person (cnst, name, age) values (?, ?, ?)" rec
+  insertRow conn "person" rec
 
   let rec2 = (Address "doom" recr)
 
-  -- insertRow conn "person" rec
-  -- PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
-  -- PS.execute conn "insert into address (cnst, street, person_cnst, person_ai) values (?, ?, ?, ?)" rec2
-
-  as <- PS.query_ conn "select * from address" :: IO [Address]
-
-  print as
+  insertRow conn "person" rec2
 
   return ()
 
