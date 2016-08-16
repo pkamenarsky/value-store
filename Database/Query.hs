@@ -63,14 +63,15 @@ insertBy' cmp x ys@(y:ys') i
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
 data Expr r a where
-  Cnst :: Show a => a -> Expr r a
-  Fld  :: String -> (r -> a) -> Expr r a
-  Fst  :: Show a => Expr r a -> Expr (r :. s) a
-  Snd  :: Show a => Expr s a -> Expr (r :. s) a
-  And  :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt  :: Expr r Int -> Expr r Int -> Expr r Bool
-  Eqs  :: Expr r Int -> Expr r Int -> Expr r Bool
-  Plus :: Expr r Int -> Expr r Int -> Expr r Int
+  -- (:+:) :: Expr a b -> Expr b c -> Expr a c
+  Cnst  :: Show a => a -> Expr r a
+  Fld   :: String -> (r -> a) -> Expr r a
+  Fst   :: Show a => Expr r a -> Expr (r :. s) a
+  Snd   :: Show a => Expr s a -> Expr (r :. s) a
+  And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
+  Grt   :: Expr r Int -> Expr r Int -> Expr r Bool
+  Eqs   :: Expr r Int -> Expr r Int -> Expr r Bool
+  Plus  :: Expr r Int -> Expr r Int -> Expr r Int
 
 instance Show (a -> b) where
   show _ = "(a -> b)"
