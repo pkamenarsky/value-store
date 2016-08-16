@@ -190,12 +190,16 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 --------------------------------------------------------------------------------
 
 data Person = Person { _name :: String, _age :: Int }
-            | Robot { _ai :: Bool } deriving (Generic, Typeable, Data, Show)
+            | Robot { _ai :: Bool }
+            | Undead { _kills :: Int } deriving (Generic, Typeable, Data, Show)
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Data, Show)
 
 instance A.FromJSON Person
 instance A.ToJSON Person
+
+instance A.FromJSON Address
+instance A.ToJSON Address
 
 instance Fields Person
 instance Fields Address
