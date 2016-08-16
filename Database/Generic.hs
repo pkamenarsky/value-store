@@ -1,18 +1,25 @@
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Database.Generic where
 
+import Control.Monad.Trans
+
 import Data.Proxy
 
 import GHC.Generics
 
+import qualified Data.ByteString as B
+
 import qualified Database.PostgreSQL.Simple.FromField as PS
 import qualified Database.PostgreSQL.Simple.FromRow as PS
+import qualified Database.PostgreSQL.Simple.Internal as PS
 
 data Object a = Empty
               | Value a
@@ -50,10 +57,11 @@ class Fields a where
   fields (Just a) = gFields $ Just $ from a
   fields Nothing  = gFields $ (Nothing :: Maybe (Rep a ()))
 
-  cnst :: Object String -> Maybe (PS.ConvArray
-  default cnst :: (Generic a, GFields (Rep a)) => Object String -> Maybe a
-  cnst obj = to <$> gCnst obj
+  cnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
+  default cnst :: (Generic a, GFields (Rep a)) => Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
+  cnst obj = fmap to <$> gCnst obj
 
+{-
 instance Fields Char where
   fields Nothing  = Value ""
   fields (Just v) = Value (show v)
@@ -71,13 +79,17 @@ instance Fields Int where
   fields (Just v) = Value (show v)
   cnst (Value v) = Just $ read v
   cnst _ = Nothing
+-}
 
 instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
   fields _ = error "overlapping"
-  cnst _ = error ""
+  cnst (Value (f, bs)) = Just (PS.fromField f bs)
+  cnst _ = Nothing
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
-  fromRow = undefined
+  fromRow = PS.RP $ case (cnst undefined) of
+    Just x  -> lift $ lift x
+    Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
 {-
 instance (Fields a, Fields b) => Fields (a, b) where
@@ -86,18 +98,18 @@ instance (Fields a, Fields b) => Fields (a, b) where
 
 class GFields f where
   gFields :: Maybe (f a) -> Object String
-  gCnst :: Object String -> Maybe (f a)
+  gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
   gFields Nothing = gFields (Nothing :: Maybe (f ()))
-  gCnst obj = M1 <$> gCnst obj
+  gCnst obj = fmap M1 <$> gCnst obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
   gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Just x)))
   gFields Nothing = Object (conName (undefined :: C1 c f ())) (getkvs (gFields (Nothing :: Maybe (f ()))))
   gCnst obj@(Object cnst _)
-    | cnst == (conName (undefined :: C1 c f ())) = M1 <$> gCnst obj
+    | cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
@@ -106,26 +118,27 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields Nothing = Object "" [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
   gCnst _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gCnst obj@(Object _ kvs)
-    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = M1 <$> gCnst v
+    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnst v
   gCnst _ = Nothing
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
-  gCnst obj = K1 <$> cnst obj
+  gCnst obj = fmap K1 <$> cnst obj
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object "" (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
   gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
-  gCnst obj = (:*:) <$> gCnst obj <*> gCnst obj
+  -- gCnst obj = (:*:) <$> gCnst obj <*> gCnst obj
+  gCnst obj = undefined
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
   gFields (Just (R1 x)) = gFields (Just x)
   gFields Nothing = Object "" (getkvs (gFields (Nothing :: Maybe (f ()))) ++ getkvs (gFields (Nothing :: Maybe (g ()))))
   gCnst obj
-    | Just x <- L1 <$> gCnst obj = Just x
-    | Just x <- R1 <$> gCnst obj = Just x
+    | Just x <- fmap L1 <$> gCnst obj = Just x
+    | Just x <- fmap R1 <$> gCnst obj = Just x
     | otherwise = Nothing
 
 instance GFields U1 where
