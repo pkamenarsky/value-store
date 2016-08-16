@@ -32,14 +32,15 @@ import qualified Database.PostgreSQL.Simple.Internal as PS
 
 import qualified Database.PostgreSQL.LibPQ as PQ
 
-data Object a = Empty
-              | Value a
+import Debug.Trace
+
+data Object a = Value (Maybe a)
               | Object String [(String, Object a)]
               deriving (Show, Functor, Foldable, Traversable)
 
 flattenObject :: String -> Object a -> [(String, a)]
-flattenObject prefix Empty     = []
-flattenObject prefix (Value v) = [(prefix, v)]
+flattenObject prefix (Value Nothing)  = []
+flattenObject prefix (Value (Just v)) = [(prefix, v)]
 flattenObject prefix (Object cnst kvs) = concat
   [ flattenObject (prefix' k i) v
   | (i, (k, v)) <- zip [0..] kvs
@@ -56,9 +57,8 @@ flattenObject prefix (Object cnst kvs) = concat
 --------------------------------------------------------------------------------
 
 getkvs :: Object a -> [(String, Object a)]
-getkvs (Object _ kvs) = kvs
-getkvs Empty          = []
-getkvs _              = error "getkvs: Value"
+getkvs (Object _ kvs)  = kvs
+getkvs _               = error "getkvs: Value"
 
 class Fields a where
   fields :: Maybe a -> Object PS.Action
@@ -74,16 +74,16 @@ instance PS.ToField Char where
   toField x = PS.toField [x]
 
 instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
-  fields (Just v) = Value (PS.toField v)
-  fields Nothing  = Empty
-  cnst (Value (f, bs)) = Just (PS.fromField f bs)
+  fields (Just v) = Value (Just $ PS.toField v)
+  fields Nothing  = Value Nothing
+  cnst (Value (Just (f, bs))) = Just (PS.fromField f bs)
   cnst _ = Nothing
 
-getColumn :: Monad m => PS.Row -> a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
-getColumn r@(PS.Row{..}) obj = do
+getColumn :: Monad m => PS.Row -> PS.Action -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
+getColumn r@(PS.Row{..}) action = do
   let unCol (PQ.Col x) = fromIntegral x :: Int
   column <- get
-  put (column + 1)
+  -- put (column + 1)
   let ncols = unsafeDupablePerformIO (PQ.nfields rowresult)
   if (column >= ncols)
   then do
@@ -113,11 +113,13 @@ getColumn r@(PS.Row{..}) obj = do
         !value = unsafeDupablePerformIO (PQ.getvalue result row column)
     return (field, value)
 
+deriving instance Show PS.Field
+
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = PS.RP $ do
     row <- ask
     obj <- lift $ traverse (getColumn row) (fields (Nothing :: Maybe a))
-    case cnst obj of
+    case cnst $ (\x -> trace (show x) x) $ obj of
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
 
@@ -139,8 +141,8 @@ instance GFields f => GFields (D1 i f) where
   gCnst obj = fmap M1 <$> gCnst obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
-  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
-  gFields Nothing = Object (conName (undefined :: C1 c f ())) (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Nothing :: Maybe (f ()))))
+  gFields (Just (M1 x)) = Object (conName (undefined :: C1 c f ())) (("cnst", Value (Just $ PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
+  gFields Nothing = Object (conName (undefined :: C1 c f ())) (("cnst", Value (Just $ PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Nothing :: Maybe (f ()))))
   gCnst obj@(Object cnst _)
     | cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
@@ -177,5 +179,5 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | otherwise = Nothing
 
 instance GFields U1 where
-  gFields _ = Empty
+  gFields _ = Value Nothing
   gCnst _ = Nothing

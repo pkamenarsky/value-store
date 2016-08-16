@@ -403,6 +403,11 @@ test = do
 
   -- insertRow conn "person" rec
   PS.execute conn "insert into address (cnst, street, person_cnst, person_name, person_age) values (?, ?, ?, ?, ?)" rec2
+  print $ evalState (mapM (const genVar) (fields (Nothing :: Maybe Address))) 0
+
+  as <- PS.query_ conn "select * from address" :: IO [Address]
+
+  print as
 
   return ()
 
