@@ -1,5 +1,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -24,7 +25,7 @@ import qualified Database.PostgreSQL.Simple.Internal as PS
 data Object a = Empty
               | Value a
               | Object String [(String, Object a)]
-              deriving Show
+              deriving (Show, Functor, Foldable, Traversable)
 
 flattenObject :: String -> Object String -> [(String, String)]
 flattenObject prefix Empty     = []
@@ -49,8 +50,6 @@ getkvs (Object _ kvs) = kvs
 getkvs Empty          = []
 getkvs _              = error "getkvs: Value"
 
--- TODO: count in g* or disallow empty selectors
-
 class Fields a where
   fields :: Maybe a -> Object String
   default fields :: (Generic a, GFields (Rep a)) => Maybe a -> Object String
@@ -60,26 +59,6 @@ class Fields a where
   cnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
   default cnst :: (Generic a, GFields (Rep a)) => Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
   cnst obj = fmap to <$> gCnst obj
-
-{-
-instance Fields Char where
-  fields Nothing  = Value ""
-  fields (Just v) = Value (show v)
-  cnst (Value [v]) = Just v
-  cnst _ = Nothing
-
-instance Fields String where
-  fields Nothing  = Value ""
-  fields (Just v) = Value v
-  cnst (Value v) = Just v
-  cnst _ = Nothing
-
-instance Fields Int where
-  fields Nothing  = Value ""
-  fields (Just v) = Value (show v)
-  cnst (Value v) = Just $ read v
-  cnst _ = Nothing
--}
 
 instance {-# OVERLAPPABLE #-} PS.FromField a => Fields a where
   fields _ = error "overlapping"
