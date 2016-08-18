@@ -120,43 +120,43 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
-data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' a l
-  Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
+data Query' k a l where
+  All    :: A.FromJSON a => l -> Row -> Query' k a l
+  Filter :: l -> Expr a Bool -> Query' k a l -> Query' k a l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' k a l -> Query' k a l
+  Join   :: (Show a, Show b, Show j, Show k, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' k a l -> Query' j b l -> Query' (k, j) (a :. b) l
 
-deriving instance (Show l, Show a) => Show (Query' a l)
+deriving instance (Show k, Show a, Show l) => Show (Query' k a l)
 
-type Query a = Query' a ()
-type LQuery a = Query' a String
+type Query k a = Query' k a ()
+type LQuery k a = Query' k a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
+all :: forall a k. (Typeable a, Fields a, A.FromJSON a) => Query k a
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query a -> Query a
+filter :: Expr a Bool -> Query k a -> Query k a
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query a -> Query a
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query k a -> Query k a
 sort = Sort () (QueryCache Nothing)
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
+join :: (Show a, Show b, Show k, Show j, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query k a -> Query j b -> Query (k, j) (a :. b)
 join = Join ()
 
-queryLabel :: Query' a l -> l
+queryLabel :: Query' k a l -> l
 queryLabel (All l _) = l
 queryLabel (Filter l _ _) = l
 queryLabel (Sort l _ _ _ _) = l
 queryLabel (Join l _ _ _) = l
 
-deriving instance Functor (Query' a)
-deriving instance Foldable (Query' a)
-deriving instance Traversable (Query' a)
+deriving instance Functor (Query' k a)
+deriving instance Foldable (Query' k a)
+deriving instance Traversable (Query' k a)
 
-labelQuery :: Query' a l -> LQuery a
+labelQuery :: Query' k a l -> LQuery k a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
@@ -238,7 +238,7 @@ aliasColumns alias ctx = concat $ intersperse ", "
   | (_, calias, col) <- ctx
   ]
 
-foldQuerySql :: LQuery a -> (String, Ctx)
+foldQuerySql :: LQuery k a -> (String, Ctx)
 foldQuerySql (All l (Row row cols)) =
   ( "select " ++ aliasColumns l ([ ([], Nothing, col) | col <- cols ]) ++ " from " ++ row
   , [ ([], Just l, col) | col <- cols ]
@@ -302,7 +302,7 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
+passesQuery :: PS.Connection -> LQuery k a -> DBValue -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
@@ -334,7 +334,7 @@ passesQuery conn (Join _ f ql qr) row = do
         return [ (Unknown, (l :. r)) | l <- ls ]
       return (Unsorted, concat rr')
 
-fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
+fillCaches :: PS.Connection -> LQuery k a -> IO (LQuery k a)
 fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
@@ -374,7 +374,7 @@ deriving instance Show PS.Notification
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> ([a] -> IO ()) -> IO [a]
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query k a -> ([a] -> IO ()) -> IO [a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
