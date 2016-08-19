@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -120,30 +121,35 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
+newtype Key = Key String deriving (Show, Ord, Eq)
+
+instance A.FromJSON a => A.FromJSON (Key :. a) where
+  parseJSON = undefined
+
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' a l
-  Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
+  All    :: A.FromJSON a => l -> Row -> Query' (Key :. a) l
+  Filter :: l -> Expr a Bool -> Query' (Key :. a) l -> Query' (Key :. a) l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (Key :. a) l -> Query' (Key :. a) l
+  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (Key :. a) l -> Query' (Key :. b) l -> Query' (Key :. (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (Key :. a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query a -> Query a
+filter :: Expr a Bool -> Query (Key :. a) -> Query (Key :. a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query a -> Query a
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (Key :. a) -> Query (Key :. a)
 sort = Sort () (QueryCache Nothing)
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
+join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (Key :. a) -> Query (Key :. b) -> Query (Key :. (a :. b))
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -302,6 +308,12 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
+fstF :: a :. b -> a
+fstF = undefined
+
+sndF :: a :. b -> b
+sndF = undefined
+
 passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
@@ -310,7 +322,7 @@ passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   else return (Unsorted, [])
 passesQuery conn (Filter _ f q) row = do
   rs <- passesQuery conn q row
-  return (fst rs, P.filter (foldExpr f . snd) $ snd rs)
+  return (fst rs, P.filter (foldExpr f . sndF . snd) $ snd rs)
 passesQuery conn (Sort _ cache label limit q) row = do
   rs <- passesQuery conn q row
   rs' <- forM (snd rs) $ \(_, r) -> do
