@@ -2,12 +2,15 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Database.Query where
 
@@ -63,11 +66,11 @@ insertBy' cmp x ys@(y:ys') i
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
 data Expr r a where
-  (:+:) :: Expr a b -> Expr b c -> Expr a c
-  Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr r a
-  Fst   :: Show a => Expr r a -> Expr (r :. s) a
-  Snd   :: Show a => Expr s a -> Expr (r :. s) a
+  (:+:) :: Expr (Keyed a) b -> Expr (Keyed b) c -> Expr (Keyed a) c
+  Cnst  :: Show a => a -> Expr (Keyed r) a
+  Fld   :: String -> (r -> a) -> Expr (Keyed r) a
+  Fst   :: Show a => Expr (Keyed r) a -> Expr (Keyed r :. s) a
+  Snd   :: Show a => Expr (Keyed s) a -> Expr (r :. Keyed s) a
   And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
   Grt   :: Ord a => Expr r a -> Expr r a -> Expr r Bool
   Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
@@ -120,8 +123,12 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
+data Keyed a = Keyed a deriving (Generic, Show)
+
+instance (GFields (Rep a), Fields a) => Fields (Keyed a)
+
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' a l
+  All    :: A.FromJSON a => l -> Row -> Query' (Keyed a) l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
   Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
   Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
@@ -131,7 +138,7 @@ deriving instance (Show l, Show a) => Show (Query' a l)
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (Keyed a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
@@ -160,10 +167,10 @@ labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
-substFst (Cnst a) sub = Cnst a
-substFst (Fld _ _) sub = error "Invalid field access"
-substFst (_ :+: _ ) sub = error "Invalid field access"
-substFst (Fst f) sub = Cnst (foldExpr f sub)
+-- substFst (Cnst a) sub = Cnst a
+-- substFst (Fld _ _) sub = error "Invalid field access"
+-- substFst (_ :+: _ ) sub = error "Invalid field access"
+-- substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
@@ -171,11 +178,11 @@ substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 substSnd :: Expr (l :. r) a -> r -> Expr l a
-substSnd (Cnst a) sub = Cnst a
-substSnd (Fld _ _) sub = error "Invalid field access"
-substSnd (_ :+: _ ) sub = error "Invalid field access"
+-- substSnd (Cnst a) sub = Cnst a
+-- substSnd (Fld _ _) sub = error "Invalid field access"
+-- substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
-substSnd (Snd f) sub = Cnst (foldExpr f sub)
+-- substSnd (Snd f) sub = Cnst (foldExpr f sub)
 substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
 substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
 substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
@@ -183,8 +190,8 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
-foldExpr (Fld _ get) = get
-foldExpr (f :+: g) = foldExpr g . foldExpr f
+-- foldExpr (Fld _ get) = get
+-- foldExpr (f :+: g) = foldExpr g . foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
@@ -213,19 +220,19 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 
 instance Fields Image
 
-nameE :: Expr Person String
+nameE :: Expr (Keyed Person) String
 nameE = Fld "name" _name
 
-ageE :: Expr Person Int
+ageE :: Expr (Keyed Person) Int
 ageE = Fld "age" _age
 
-aiE :: Expr Person Bool
+aiE :: Expr (Keyed Person) Bool
 aiE = Fld "ai" _ai
 
-personE :: Expr Address Person
+personE :: Expr (Keyed Address) Person
 personE = Fld "person" _person
 
-streetE :: Expr Address String
+streetE :: Expr (Keyed Address) String
 streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
@@ -264,6 +271,7 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
+{-
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
 qr = all
 -- q1 :: _
@@ -285,6 +293,7 @@ simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE
 
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
+-}
 
 data Index a = Unknown | Index Int deriving Show
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
@@ -301,6 +310,9 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
   if i < limit
     then return (Just (Index i))
     else return Nothing
+
+instance A.FromJSON (Keyed a) where
+  parseJSON = undefined
 
 passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
@@ -372,6 +384,9 @@ insertRow conn col a = do
 
 deriving instance Show PS.Notification
 
+class Indexable a b where
+  key :: a -> b
+
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
 query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> ([a] -> IO ()) -> IO [a]
@@ -400,10 +415,8 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  {-
   rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
   traceIO $ show rs
-  -}
 
   let rec  = (Person "john" 222)
       recr = Robot True
