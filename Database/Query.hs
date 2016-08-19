@@ -131,7 +131,7 @@ deriving instance (Show k, Show a, Show l) => Show (Query' k a l)
 type Query k a = Query' k a ()
 type LQuery k a = Query' k a String
 
-all :: forall a k. (Typeable a, Fields a, A.FromJSON a) => Query k a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query String a
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
