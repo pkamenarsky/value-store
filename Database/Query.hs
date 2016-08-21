@@ -65,7 +65,7 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
-data K a = K { unK :: a } deriving (Generic, Show)
+data K a = K { unK :: a } deriving (Generic, Typeable, Show)
 
 instance A.FromJSON a => A.FromJSON (K a)
 instance A.ToJSON a => A.ToJSON (K a)
@@ -76,19 +76,34 @@ instance PS.ToRow a => PS.ToRow (K a) where
 instance PS.FromRow a => PS.FromRow (K a) where
   fromRow = undefined
 
+instance Fields (K a) where
+  fields = undefined
+  cnst = undefined
+
+{-
 class FromK a b where
   fromK :: a -> b
 
 instance FromK a a where
   fromK = id
 
-instance FromK (K a :. K b) (K (a :. b)) where
+instance (FromK a c, FromK b d) => FromK (K a :. K b) (K (c :. d)) where
   fromK (K a :. K b) = K (fromK a :. fromK b)
+
+instance FromK a c => FromK (a :. K b) (K (c :. b)) where
+  fromK (a :. K b) = K (fromK a :. fromK b)
+
+instance FromK b c => FromK (K a :. b) (K (a :. c)) where
+  fromK (K a :. b) = K (fromK a :. fromK b)
+
+trans :: K Person :. (K Person :. K Person) -> K (Person :. (Person :. Person))
+trans = fromK
+-}
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
   Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr (K r) a
+  Fld   :: String -> (r -> a) -> Expr r a
   Fst   :: Show a => Expr r a -> Expr (r :. s) a
   Snd   :: Show a => Expr s a -> Expr (r :. s) a
   And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
@@ -145,9 +160,9 @@ data DBValue = DBValue String A.Value
 
 data Query' a l where
   All    :: A.FromJSON a => l -> Row -> Query' (K a) l
-  Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
+  Filter :: l -> Expr a Bool -> Query' (K a) l -> Query' (K a) l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (K a) l -> Query' (K a) l
+  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K a) l -> Query' (K b) l -> Query' (K (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
@@ -160,13 +175,13 @@ all = All () (Row table [ k | (k, _) <- kvs ])
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query a -> Query a
+filter :: Expr a Bool -> Query (K a) -> Query (K a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query a -> Query a
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (K a) -> Query (K a)
 sort = Sort () (QueryCache Nothing)
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
+join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K a) -> Query (K b) -> Query (K (a :. b))
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -184,7 +199,7 @@ labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
--- substFst (Fld _ _) sub = error "Invalid field access"
+substFst (Fld _ _) sub = error "Invalid field access"
 substFst (_ :+: _ ) sub = error "Invalid field access"
 substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
@@ -195,7 +210,7 @@ substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 substSnd :: Expr (l :. r) a -> r -> Expr l a
 substSnd (Cnst a) sub = Cnst a
--- substSnd (Fld _ _) sub = error "Invalid field access"
+substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
 substSnd (Snd f) sub = Cnst (foldExpr f sub)
@@ -206,7 +221,7 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
-foldExpr (Fld _ get) = get . unK
+foldExpr (Fld _ get) = get
 foldExpr (f :+: g) = foldExpr g . foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
@@ -236,19 +251,19 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 
 instance Fields Image
 
-nameE :: Expr (K Person) String
+nameE :: Expr (Person) String
 nameE = Fld "name" _name
 
-ageE :: Expr (K Person) Int
+ageE :: Expr (Person) Int
 ageE = Fld "age" _age
 
-aiE :: Expr (K Person) Bool
+aiE :: Expr (Person) Bool
 aiE = Fld "ai" _ai
 
-personE :: Expr (K Address) Person
+personE :: Expr (Address) Person
 personE = Fld "person" _person
 
-streetE :: Expr (K Address) String
+streetE :: Expr (Address) String
 streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
@@ -288,6 +303,7 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
+qr :: Query (K Person)
 qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -297,11 +313,13 @@ q1sql = fst $ foldQuerySql (labelQuery q1)
 -- q2 :: _ -- Query ((Person, Person), Person)
 q2 = sort (Fst (Fst ageE)) (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Grt` Cnst 666)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
 
-q2sql = fst $ foldQuerySql (labelQuery q2)
+-- q2sql = fst $ foldQuerySql (labelQuery q2)
 
+allPersons :: Query (K Person)
 allPersons = all
 
-simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+-- simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 -- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -333,29 +351,36 @@ passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   else return (Unsorted, [])
 passesQuery conn (Filter _ f q) row = do
   rs <- passesQuery conn q row
-  return (fst rs, P.filter (foldExpr f . snd) $ snd rs)
+  return undefined -- (fst rs, P.filter (foldExpr f . snd) $ snd rs)
 passesQuery conn (Sort _ cache label limit q) row = do
   rs <- passesQuery conn q row
+  {-
   rs' <- forM (snd rs) $ \(_, r) -> do
     index <- updateCache cache label limit r
     return ((,r) <$> index)
   return (SortBy label, catMaybes rs')
+  -}
+  return undefined
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
   if not (null rl)
     then do
+      {-
       rl' <- forM (snd rl) $ \(_, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) $ fmap (const ()) qr
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
         return [ (Unknown, (r :. l)) | l <- ls ]
-      return (Unsorted, concat rl')
+      -}
+      return undefined -- (Unsorted, concat rl')
     else do
+      {-
       rr' <- forM (snd rr) $ \(_, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) $ fmap (const ()) ql
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
         return [ (Unknown, (l :. r)) | l <- ls ]
-      return (Unsorted, concat rr')
+      -}
+      return undefined -- (Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
