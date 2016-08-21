@@ -318,8 +318,7 @@ q2 = sort (Fst (Fst ageE)) (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd age
 allPersons :: Query (K Person)
 allPersons = all
 
--- simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
-simplejoin = join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 -- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
