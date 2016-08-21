@@ -62,10 +62,21 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
+data K a = K { unK :: a } deriving (Generic, Show)
+
+instance A.FromJSON a => A.FromJSON (K a)
+instance A.ToJSON a => A.ToJSON (K a)
+
+instance PS.ToRow a => PS.ToRow (K a) where
+  toRow = undefined
+
+instance PS.FromRow a => PS.FromRow (K a) where
+  fromRow = undefined
+
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
   Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr r a
+  Fld   :: String -> (r -> a) -> Expr (K r) a
   Fst   :: Show a => Expr r a -> Expr (r :. s) a
   Snd   :: Show a => Expr s a -> Expr (r :. s) a
   And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
@@ -121,7 +132,7 @@ data Row = Row String [String] deriving Show
 data DBValue = DBValue String A.Value
 
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' a l
+  All    :: A.FromJSON a => l -> Row -> Query' (K a) l
   Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
   Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
   Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
@@ -131,7 +142,7 @@ deriving instance (Show l, Show a) => Show (Query' a l)
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
@@ -161,7 +172,7 @@ labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
 substFst (Cnst a) sub = Cnst a
-substFst (Fld _ _) sub = error "Invalid field access"
+-- substFst (Fld _ _) sub = error "Invalid field access"
 substFst (_ :+: _ ) sub = error "Invalid field access"
 substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
@@ -172,7 +183,7 @@ substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 substSnd :: Expr (l :. r) a -> r -> Expr l a
 substSnd (Cnst a) sub = Cnst a
-substSnd (Fld _ _) sub = error "Invalid field access"
+-- substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
 substSnd (Snd f) sub = Cnst (foldExpr f sub)
@@ -183,7 +194,7 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
-foldExpr (Fld _ get) = get
+foldExpr (Fld _ get) = get . unK
 foldExpr (f :+: g) = foldExpr g . foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
@@ -213,19 +224,19 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 
 instance Fields Image
 
-nameE :: Expr Person String
+nameE :: Expr (K Person) String
 nameE = Fld "name" _name
 
-ageE :: Expr Person Int
+ageE :: Expr (K Person) Int
 ageE = Fld "age" _age
 
-aiE :: Expr Person Bool
+aiE :: Expr (K Person) Bool
 aiE = Fld "ai" _ai
 
-personE :: Expr Address Person
+personE :: Expr (K Address) Person
 personE = Fld "person" _person
 
-streetE :: Expr Address String
+streetE :: Expr (K Address) String
 streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
@@ -281,7 +292,7 @@ allPersons = all
 simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
-simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
+-- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
 
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
