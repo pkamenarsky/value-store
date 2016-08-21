@@ -146,6 +146,7 @@ deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
+type CQuery a = Query' a (String, Cache () a)
 
 all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K Key a)
 all = All () (Row table [ k | (k, _) <- kvs ])
@@ -346,20 +347,24 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
 
 data Action = Insert | Delete
 
-passesQuery :: PS.Connection -> LQuery (K t a) -> DBValue -> [K t a] -> IO [(Action, K t a)]
-passesQuery conn (All _ (Row r' _)) row@(DBValue action r value) cache
-  | r == r', A.Success a <- A.fromJSON value = return [(action, a)]
-  | otherwise = return []
+type Cache t a = [K t a]
+
+passesQuery :: PS.Connection -> DBValue -> CQuery (K t a) -> IO (CQuery (K t a), [(Action, K t a)])
+passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
+  | r == r', A.Success a <- A.fromJSON value = return (qq, [(action, a)])
+  | otherwise = return (qq, [])
+passesQuery conn row qq@(Filter l f q) = do
+  (qc, as) <- passesQuery conn row q
+  return (Filter l f qc, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
+passesQuery conn row (Sort (l, cache) _cache label limit q) = do
+  (qc, as) <- passesQuery conn row q
+  where
+    go cache (Insert, a)
+      | (i', cache') <- insertBy' (comparing (foldExpr label)) a cache 0
+      , i' < fromMaybe maxBound limit = do
+          write cache'
+          return [(Insert, a)]
 {-
-passesQuery conn (Filter _ f q) row = do
-  fq <- passesQuery conn q row
-  return $ P.filter (foldExpr f . unK) . fq
-passesQuery conn (Sort _ cache label limit q) row = do
-  fq <- passesQuery conn q row
-  return $ \rs -> do
-    index <- updateCache cache label limit (unK r)
-    return ((,r) <$> index)
-  return (SortBy label, catMaybes rs')
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
