@@ -2,8 +2,11 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -72,6 +75,15 @@ instance PS.ToRow a => PS.ToRow (K a) where
 
 instance PS.FromRow a => PS.FromRow (K a) where
   fromRow = undefined
+
+class FromK a b where
+  fromK :: a -> b
+
+instance FromK a a where
+  fromK = id
+
+instance FromK (K a :. K b) (K (a :. b)) where
+  fromK (K a :. K b) = K (fromK a :. fromK b)
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
