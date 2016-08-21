@@ -66,8 +66,8 @@ insertBy' cmp x ys@(y:ys') i
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
 data Expr r a where
-  (:+:) :: Expr a b -> Expr (Keyed b) c -> Expr a c
-  Cnst  :: Show a => a -> Expr r a
+  (:+:) :: Expr (Keyed a) b -> Expr (Keyed b) c -> Expr (Keyed a) c
+  Cnst  :: Show a => a -> Expr (Keyed r) a
   Fld   :: String -> (r -> a) -> Expr (Keyed r) a
   Fst   :: Show a => Expr (Keyed r) a -> Expr (Keyed r :. s) a
   Snd   :: Show a => Expr (Keyed s) a -> Expr (r :. Keyed s) a
@@ -123,7 +123,7 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
-data Keyed a = Keyed { unKey :: a } deriving (Generic, Show)
+data Keyed a = Keyed a deriving (Generic, Show)
 
 instance (GFields (Rep a), Fields a) => Fields (Keyed a)
 
@@ -167,10 +167,10 @@ labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Expr r a
-substFst (Cnst a) sub = Cnst a
+-- substFst (Cnst a) sub = Cnst a
 -- substFst (Fld _ _) sub = error "Invalid field access"
-substFst (_ :+: _ ) sub = error "Invalid field access"
-substFst (Fst f) sub = Cnst (foldExpr f sub)
+-- substFst (_ :+: _ ) sub = error "Invalid field access"
+-- substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
@@ -178,11 +178,11 @@ substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
 substSnd :: Expr (l :. r) a -> r -> Expr l a
-substSnd (Cnst a) sub = Cnst a
+-- substSnd (Cnst a) sub = Cnst a
 -- substSnd (Fld _ _) sub = error "Invalid field access"
-substSnd (_ :+: _ ) sub = error "Invalid field access"
+-- substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
-substSnd (Snd f) sub = Cnst (foldExpr f sub)
+-- substSnd (Snd f) sub = Cnst (foldExpr f sub)
 substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
 substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
 substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
@@ -190,9 +190,8 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> a)
 foldExpr (Cnst a) = const a
-foldExpr (Fld _ get) = get . unKey
-foldExpr (f :+: Fld name get) = get . foldExpr f
-foldExpr (f :+: _) = error "Invalid field access"
+-- foldExpr (Fld _ get) = get
+-- foldExpr (f :+: g) = foldExpr g . foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
 foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
