@@ -23,7 +23,7 @@ import Data.Char
 import Data.Typeable
 import Data.IORef
 import Data.Maybe
-import Data.List                  (intersperse)
+import Data.List                  (intersperse, deleteBy)
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
 
@@ -65,15 +65,15 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
-data K a = K { unK :: a } deriving (Generic, Typeable, Show)
+data K t a = K { key :: [String], unK :: a } deriving (Generic, Typeable, Show)
 
-instance A.FromJSON a => A.FromJSON (K a)
-instance A.ToJSON a => A.ToJSON (K a)
+instance A.FromJSON a => A.FromJSON (K t a)
+instance A.ToJSON a => A.ToJSON (K t a)
 
-instance PS.ToRow a => PS.ToRow (K a) where
+instance PS.ToRow a => PS.ToRow (K t a) where
   toRow = undefined
 
-instance PS.FromRow a => PS.FromRow (K a) where
+instance PS.FromRow a => PS.FromRow (K t a) where
   fromRow = undefined
 
 data Expr r a where
@@ -134,30 +134,32 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
+type Key = String
+
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' (K a) l
-  Filter :: l -> Expr a Bool -> Query' (K a) l -> Query' (K a) l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (K a) l -> Query' (K a) l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K a) l -> Query' (K b) l -> Query' (K (a :. b)) l
+  All    :: A.FromJSON a => l -> Row -> Query' (K Key a) l
+  Filter :: l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K a)
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K Key a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query (K a) -> Query (K a)
+filter :: Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (K a) -> Query (K a)
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (K t a) -> Query (K t a)
 sort = Sort () (QueryCache Nothing)
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K a) -> Query (K b) -> Query (K (a :. b))
+join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -244,6 +246,28 @@ streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
 
+class Actionable k v where
+  update :: Action -> k -> [K k v] -> [K k v]
+
+data Wildcard
+
+instance Actionable Key b where
+  update _ k v = v
+
+instance Actionable Wildcard b where
+  update _ k v = []
+
+instance (Actionable j a, Actionable k b) => Actionable (j :. k) (a :. b) where
+  update action (j :. k) v = [ K k' (a :. b) | (K k' a, K k'' b) <- zip js ks ]
+    where
+      js = update action j [ K k' a | K k' (a :. b) <- v ]
+      ks = update action k [ K k' b | K k' (a :. b) <- v ]
+
+kvs :: [K (Key :. (Wildcard :. Key)) (Person :. (Person :. Person))]
+kvs = undefined
+
+kvs' = update Delete undefined kvs
+
 aliasColumns :: String -> Ctx -> String
 aliasColumns alias ctx = concat $ intersperse ", "
   [ case calias of
@@ -279,7 +303,7 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
-qr :: Query (K Person)
+qr :: Query (K Key Person)
 qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -291,7 +315,7 @@ q2 = sort (Fst (Fst ageE)) (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd age
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
-allPersons :: Query (K Person)
+allPersons :: Query (K Key Person)
 allPersons = all
 
 simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
@@ -318,7 +342,9 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> LQuery (K a) -> DBValue -> IO (SortOrder a, [(Index a, K a)])
+data Action = Insert | Delete | Replace
+
+passesQuery :: PS.Connection -> LQuery (K t a) -> DBValue -> IO (SortOrder a, [(Index a, K t a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
@@ -342,13 +368,13 @@ passesQuery conn (Join _ f ql qr) row = do
       rl' <- forM (snd rl) $ \(_, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-        return [ (Unknown, K (unK r :. l)) | l <- ls ]
+        return [ (Unknown, K (key r ++ key l) (unK r :. unK l)) | l <- ls ]
       return (Unsorted, concat rl')
     else do
       rr' <- forM (snd rr) $ \(_, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-        return [ (Unknown, K (l :. unK r)) | l <- ls ]
+        return [ (Unknown, K (key l ++ key r) (unK l :. unK r)) | l <- ls ]
       return (Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
@@ -391,7 +417,7 @@ deriving instance Show PS.Notification
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K a) -> ([K a] -> IO ()) -> IO [K a]
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
