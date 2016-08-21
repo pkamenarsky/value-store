@@ -76,30 +76,6 @@ instance PS.ToRow a => PS.ToRow (K a) where
 instance PS.FromRow a => PS.FromRow (K a) where
   fromRow = undefined
 
-{-
-instance Fields (K a) where
-  fields = undefined
-  cnst = undefined
-
-class FromK a b where
-  fromK :: a -> b
-
-instance FromK a a where
-  fromK = id
-
-instance (FromK a c, FromK b d) => FromK (K a :. K b) (K (c :. d)) where
-  fromK (K a :. K b) = K (fromK a :. fromK b)
-
-instance FromK a c => FromK (a :. K b) (K (c :. b)) where
-  fromK (a :. K b) = K (fromK a :. fromK b)
-
-instance FromK b c => FromK (K a :. b) (K (a :. c)) where
-  fromK (K a :. b) = K (fromK a :. fromK b)
-
-trans :: K Person :. (K Person :. K Person) -> K (Person :. (Person :. Person))
-trans = fromK
--}
-
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
   Cnst  :: Show a => a -> Expr r a
