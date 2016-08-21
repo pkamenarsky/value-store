@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -120,30 +121,32 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue String A.Value
 
+data K a = K { unK :: a } deriving Show
+
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' a l
-  Filter :: l -> Expr a Bool -> Query' a l -> Query' a l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' a l -> Query' a l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' a l -> Query' b l -> Query' (a :. b) l
+  All    :: A.FromJSON a => l -> Row -> Query' (K a) l
+  Filter :: l -> Expr a Bool -> Query' (K a) l -> Query' (K a) l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (K a) l -> Query' (K a) l
+  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K a) l -> Query' (K b) l -> Query' (K (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query a
+all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query a -> Query a
+filter :: Expr a Bool -> Query (K a) -> Query (K a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query a -> Query a
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (K a) -> Query (K a)
 sort = Sort () (QueryCache Nothing)
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query a -> Query b -> Query (a :. b)
+join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K a) -> Query (K b) -> Query (K (a :. b))
 join = Join ()
 
 queryLabel :: Query' a l -> l
@@ -302,7 +305,7 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
+passesQuery :: PS.Connection -> LQuery (K a) -> DBValue -> IO (SortOrder a, [(Index a, a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
@@ -372,9 +375,23 @@ insertRow conn col a = do
 
 deriving instance Show PS.Notification
 
+instance (PS.ToRow a) => PS.ToRow (K a) where
+  toRow = undefined
+
+instance (PS.FromRow a) => PS.FromRow (K a) where
+  fromRow = undefined
+
+instance (PS.FromRow a, PS.FromRow b) => PS.FromRow (K (a :. b)) where
+  fromRow = undefined
+
+{-
+instance (PS.ToRow a, PS.ToRow b) => PS.ToRow (K (a :. b)) where
+  toRow = undefined
+-}
+
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> ([a] -> IO ()) -> IO [a]
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K a) -> ([a] -> IO ()) -> IO [K a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
@@ -382,6 +399,7 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
+  {-
   forkIO $ forever $ do
     nt <- PS.getNotification conn
     traceIO $ "NOT: " ++ show nt
@@ -394,6 +412,7 @@ query conn q cb = do
         readIORef rr >>= cb
       Nothing -> do
         return ()
+  -}
   return rs
 
 test :: IO ()
