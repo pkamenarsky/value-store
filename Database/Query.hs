@@ -76,21 +76,29 @@ instance PS.ToRow a => PS.ToRow (K a) where
 instance PS.FromRow a => PS.FromRow (K a) where
   fromRow = undefined
 
-data Expr r a where
-  (:+:) :: Expr a b -> Expr b c -> Expr a c
-  Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr r a
-  Fst   :: Show a => Expr r a -> Expr (r :. s) a
-  Snd   :: Show a => Expr s a -> Expr (r :. s) a
-  And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt   :: Ord a => Expr r a -> Expr r a -> Expr r Bool
-  Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
-  Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
+data Expr' r a expr where
+  (:+:) :: expr a b -> expr b c -> Expr' a c expr
+  Cnst  :: Show a => a -> Expr' r a expr
+  Fld   :: String -> (r -> a) -> Expr' r a expr
+  Fst   :: Show a => expr r a -> Expr' (r :. s) a expr
+  Snd   :: Show a => expr s a -> Expr' (r :. s) a expr
+  And   :: expr r Bool -> expr r Bool -> Expr' r Bool expr
+  Grt   :: Ord a => expr r a -> expr r a -> Expr' r Bool expr
+  Eqs   :: Eq  a => expr r a -> expr r a -> Expr' r Bool expr
+  Plus  :: Num n => expr r n -> expr r n -> Expr' r n expr
+
+data Fix f = In (f (Fix f))
+
+instance Show (Fix f) where
+  show = undefined
+
+data Expr r a = Fix (Expr' r a Expr)
 
 instance Show (a -> b) where
   show _ = "(a -> b)"
 
-deriving instance Show (Expr r a)
+deriving instance Show (Expr' r b Expr)
+deriving instance Show (Expr r b)
 
 genVar :: State Int String
 genVar = do
