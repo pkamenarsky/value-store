@@ -423,7 +423,6 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
-  {-
   forkIO $ forever $ do
     nt <- PS.getNotification conn
     traceIO $ "NOT: " ++ show nt
@@ -432,11 +431,10 @@ query conn q cb = do
         (sf, pq) <- passesQuery conn cq (DBValue (B.unpack $ PS.notificationChannel nt) a)
         case sf of
           Unsorted -> modifyIORef rr (++ (map snd pq))
-          SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
+          -- SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
         readIORef rr >>= cb
       Nothing -> do
         return ()
-  -}
   return rs
 
 test :: IO ()
