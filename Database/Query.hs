@@ -132,7 +132,7 @@ data QueryCache a = QueryCache (Maybe (IORef [a])) deriving Show
 
 data Row = Row String [String] deriving Show
 
-data DBValue = DBValue String A.Value
+data DBValue = DBValue Action String A.Value
 
 type Key = String
 
@@ -246,6 +246,7 @@ streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
 
+{-
 class Actionable k v where
   update :: Action -> k -> [K k v] -> [K k v]
 
@@ -267,6 +268,7 @@ kvs :: [K (Key :. (Wildcard :. Key)) (Person :. (Person :. Person))]
 kvs = undefined
 
 kvs' = update Delete undefined kvs
+-}
 
 aliasColumns :: String -> Ctx -> String
 aliasColumns alias ctx = concat $ intersperse ", "
@@ -342,24 +344,22 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-data Action = Insert | Delete | Replace
+data Action = Insert | Delete
 
-passesQuery :: PS.Connection -> LQuery (K t a) -> DBValue -> IO (SortOrder a, [(Index a, K t a)])
-passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
-  then case A.fromJSON value of
-    A.Success a -> return (Unsorted, [(Unknown, a)])
-    _           -> return (Unsorted, [])
-  else return (Unsorted, [])
+passesQuery :: PS.Connection -> LQuery (K t a) -> DBValue -> [K t a] -> IO [(Action, K t a)]
+passesQuery conn (All _ (Row r' _)) row@(DBValue action r value) cache
+  | r == r', A.Success a <- A.fromJSON value = return [(action, a)]
+  | otherwise = return []
+{-
 passesQuery conn (Filter _ f q) row = do
-  rs <- passesQuery conn q row
-  return (fst rs, P.filter (foldExpr f . unK . snd) $ snd rs)
+  fq <- passesQuery conn q row
+  return $ P.filter (foldExpr f . unK) . fq
 passesQuery conn (Sort _ cache label limit q) row = do
-  rs <- passesQuery conn q row
-  rs' <- forM (snd rs) $ \(_, r) -> do
+  fq <- passesQuery conn q row
+  return $ \rs -> do
     index <- updateCache cache label limit (unK r)
     return ((,r) <$> index)
   return (SortBy label, catMaybes rs')
-  return undefined
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
@@ -376,6 +376,7 @@ passesQuery conn (Join _ f ql qr) row = do
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
         return [ (Unknown, K (key l ++ key r) (unK l :. unK r)) | l <- ls ]
       return (Unsorted, concat rr')
+-}
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
@@ -425,6 +426,7 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
+  {-
   forkIO $ forever $ do
     nt <- PS.getNotification conn
     traceIO $ "NOT: " ++ show nt
@@ -437,6 +439,7 @@ query conn q cb = do
         readIORef rr >>= cb
       Nothing -> do
         return ()
+  -}
   return rs
 
 test :: IO ()
