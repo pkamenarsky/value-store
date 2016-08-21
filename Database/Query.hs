@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Database.Query where
@@ -381,13 +382,17 @@ instance (PS.ToRow a) => PS.ToRow (K a) where
 instance (PS.FromRow a) => PS.FromRow (K a) where
   fromRow = undefined
 
+{-
 instance (PS.FromRow a, PS.FromRow b) => PS.FromRow (K (a :. b)) where
   fromRow = undefined
 
-{-
 instance (PS.ToRow a, PS.ToRow b) => PS.ToRow (K (a :. b)) where
   toRow = undefined
 -}
+
+type family ToK a where
+  -- ToK a = K a
+  ToK (a :. b) = ToK a :. ToK b
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
