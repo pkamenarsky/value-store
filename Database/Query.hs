@@ -76,11 +76,11 @@ instance PS.ToRow a => PS.ToRow (K a) where
 instance PS.FromRow a => PS.FromRow (K a) where
   fromRow = undefined
 
+{-
 instance Fields (K a) where
   fields = undefined
   cnst = undefined
 
-{-
 class FromK a b where
   fromK :: a -> b
 
@@ -342,7 +342,7 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-passesQuery :: PS.Connection -> LQuery a -> DBValue -> IO (SortOrder a, [(Index a, a)])
+passesQuery :: PS.Connection -> LQuery (K a) -> DBValue -> IO (SortOrder a, [(Index a, K a)])
 passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   then case A.fromJSON value of
     A.Success a -> return (Unsorted, [(Unknown, a)])
@@ -350,36 +350,30 @@ passesQuery conn (All _ (Row r' _)) row@(DBValue r value) = if r == r'
   else return (Unsorted, [])
 passesQuery conn (Filter _ f q) row = do
   rs <- passesQuery conn q row
-  return undefined -- (fst rs, P.filter (foldExpr f . snd) $ snd rs)
+  return (fst rs, P.filter (foldExpr f . unK . snd) $ snd rs)
 passesQuery conn (Sort _ cache label limit q) row = do
   rs <- passesQuery conn q row
-  {-
   rs' <- forM (snd rs) $ \(_, r) -> do
-    index <- updateCache cache label limit r
+    index <- updateCache cache label limit (unK r)
     return ((,r) <$> index)
   return (SortBy label, catMaybes rs')
-  -}
   return undefined
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
   rr <- passesQuery conn qr row
   if not (null rl)
     then do
-      {-
       rl' <- forM (snd rl) $ \(_, r) -> do
-        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) $ fmap (const ()) qr
+        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-        return [ (Unknown, (r :. l)) | l <- ls ]
-      -}
-      return undefined -- (Unsorted, concat rl')
+        return [ (Unknown, K (unK r :. l)) | l <- ls ]
+      return (Unsorted, concat rl')
     else do
-      {-
       rr' <- forM (snd rr) $ \(_, r) -> do
-        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) $ fmap (const ()) ql
+        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-        return [ (Unknown, (l :. r)) | l <- ls ]
-      -}
-      return undefined -- (Unsorted, concat rr')
+        return [ (Unknown, K (l :. unK r)) | l <- ls ]
+      return (Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
@@ -421,7 +415,7 @@ deriving instance Show PS.Notification
 
 -- TODO: lock while calling passesQuery to ensure cache consistency. Is this
 -- important?
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query a -> ([a] -> IO ()) -> IO [a]
+query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K a) -> ([K a] -> IO ()) -> IO [K a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
@@ -429,6 +423,7 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
+  {-
   forkIO $ forever $ do
     nt <- PS.getNotification conn
     traceIO $ "NOT: " ++ show nt
@@ -441,6 +436,7 @@ query conn q cb = do
         readIORef rr >>= cb
       Nothing -> do
         return ()
+  -}
   return rs
 
 test :: IO ()
