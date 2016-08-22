@@ -22,7 +22,7 @@ import qualified Data.Aeson as A
 import Data.Char
 import Data.Function              (on)
 import Data.IORef
-import Data.List                  (intersperse, deleteBy)
+import Data.List                  (intersperse, delete)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -66,7 +66,15 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
-data K t a = K { key :: [String], unK :: a } deriving (Generic, Typeable, Show)
+data KP = KP String | Wildcard deriving (Generic, Typeable, Show)
+
+data K t a = K { key :: [KP], unK :: a } deriving (Generic, Typeable, Show)
+
+instance Eq (K t a) where
+  K kp _ == K kp' _ = undefined
+
+instance A.FromJSON KP
+instance A.ToJSON KP
 
 instance A.FromJSON a => A.FromJSON (K t a)
 instance A.ToJSON a => A.ToJSON (K t a)
@@ -350,6 +358,9 @@ data Action = Insert | Delete
 
 type Cache t a = [a]
 
+-- NOTE: we need to ensure consistency. If something changes in the DB after
+-- a notification has been received, the data has to remain consitent. I.e:
+-- a delete happens, Join (or something else) expects data to be there.
 passesQuery :: PS.Connection
             -> DBValue
             -> CQuery (K t a)
@@ -375,7 +386,8 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
     go expr cache ((Delete, a):as) = do
       -- TODO: test sort
       as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
-      go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as)
+      (cache', as'') <- go expr (delete a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+      return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
 passesQuery conn row (Join l f ql qr) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
