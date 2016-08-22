@@ -373,7 +373,9 @@ passesQuery conn row (Sort (l, cache) _cache label offset limit q) = do
           return (cache'', (Insert, a):as')
       | otherwise = go expr cache as
     go expr cache ((Delete, a):as) = do
-      return (deleteBy ((==) `on` key) a cache, (Delete, a):as)
+      -- TODO: test sort
+      as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort (l, cache) _cache label (Just $ fromMaybe 0 offset + length cache - 1) limit q)
+      go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as)
 
 {-
 passesQuery conn (Join _ f ql qr) row = do
