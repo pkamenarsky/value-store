@@ -20,12 +20,13 @@ import Control.Concurrent
 import qualified Data.Aeson as A
 
 import Data.Char
-import Data.Typeable
+import Data.Function              (on)
 import Data.IORef
-import Data.Maybe
 import Data.List                  (intersperse, deleteBy)
+import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
+import Data.Typeable
 
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as B
@@ -139,7 +140,7 @@ type Key = String
 data Query' a l where
   All    :: A.FromJSON a => l -> Row -> Query' (K Key a) l
   Filter :: l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -157,7 +158,7 @@ all = All () (Row table [ k | (k, _) <- kvs ])
 filter :: Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Query (K t a) -> Query (K t a)
+sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
 sort = Sort () (QueryCache Nothing)
 
 join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
@@ -166,7 +167,7 @@ join = Join ()
 queryLabel :: Query' a l -> l
 queryLabel (All l _) = l
 queryLabel (Filter l _ _) = l
-queryLabel (Sort l _ _ _ _) = l
+queryLabel (Sort l _ _ _ _ _) = l
 queryLabel (Join l _ _ _) = l
 
 deriving instance Functor (Query' a)
@@ -289,8 +290,8 @@ foldQuerySql (Filter l f q) =
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
   where (q', ctx) = foldQuerySql q
-foldQuerySql (Sort l _ f limit q) =
-  ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " order by " ++ foldExprSql ctx f  ++ maybe "" ((" limit " ++) . show) limit
+foldQuerySql (Sort l _ f offset limit q) =
+  ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " order by " ++ foldExprSql ctx f  ++ maybe "" ((" limit " ++) . show) limit ++ maybe "" ((" offset " ++) . show) offset
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
   where (q', ctx) = foldQuerySql q
@@ -305,7 +306,7 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
-ql = (filter (ageE `Grt` Cnst 3) $ sort nameE (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
+ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
 qr :: Query (K Key Person)
 qr = all
 -- q1 :: _
@@ -314,14 +315,14 @@ q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd age
 q1sql = fst $ foldQuerySql (labelQuery q1)
 
 -- q2 :: _ -- Query ((Person, Person), Person)
-q2 = sort (Fst (Fst ageE)) (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Grt` Cnst 666)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
+q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Grt` Cnst 666)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
 allPersons :: Query (K Key Person)
 allPersons = all
 
-simplejoin = sort (Fst ageE) (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = sort (Fst ageE) Nothing (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 -- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -359,10 +360,10 @@ passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
 passesQuery conn row qq@(Filter l f q) = do
   (qc, as) <- passesQuery conn row q
   return (Filter l f qc, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
-passesQuery conn row (Sort (l, cache) _cache label limit q) = do
+passesQuery conn row (Sort (l, cache) _cache label offset limit q) = do
   (qc, as)      <- passesQuery conn row q
   (cache', as') <- go label cache as
-  return (Sort (l, cache') _cache label limit qc, as')
+  return (Sort (l, cache') _cache label offset limit qc, as')
   where
     go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
@@ -370,6 +371,9 @@ passesQuery conn row (Sort (l, cache) _cache label limit q) = do
       , i' < fromMaybe maxBound limit = do
           (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')
+      | otherwise = go expr cache as
+    go expr cache ((Delete, a):as) = do
+      return (deleteBy ((==) `on` key) a cache, (Delete, a):as)
 
 {-
 passesQuery conn (Join _ f ql qr) row = do
@@ -395,14 +399,14 @@ fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
   return (Filter l a q')
-fillCaches conn qq@(Sort l _ b limit q) = do
+fillCaches conn qq@(Sort l _ b offset limit q) = do
   cache <- case limit of
     Just _  -> do
       rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
       QueryCache . Just <$> newIORef rs
     Nothing -> return $ QueryCache Nothing
   q' <- fillCaches conn q
-  return (Sort l cache b limit q')
+  return (Sort l cache b offset limit q')
 fillCaches conn (Join l a ql qr) = do
   ql' <- fillCaches conn ql
   qr' <- fillCaches conn qr
