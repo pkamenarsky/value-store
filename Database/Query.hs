@@ -359,7 +359,10 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
     then return (Just (Index i))
     else return Nothing
 
-data Action = Insert | Delete
+data Action = Insert | Delete deriving (Generic)
+
+instance A.FromJSON Action
+instance A.ToJSON Action
 
 type Cache t a = [a]
 
@@ -465,31 +468,27 @@ insertRow conn col a = do
 
 deriving instance Show PS.Notification
 
--- TODO: lock while calling passesQuery to ensure cache consistency. Is this
--- important?
 query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
-  rr <- newIORef rs
 
   PS.execute_ conn "listen person"
 
-  {-
-  forkIO $ forever $ do
-    nt <- PS.getNotification conn
-    traceIO $ "NOT: " ++ show nt
-    case A.decode (BL.fromStrict $ PS.notificationData nt) of
-      Just a -> do
-        (sf, pq) <- passesQuery conn cq (DBValue (B.unpack $ PS.notificationChannel nt) a)
-        case sf of
-          Unsorted -> modifyIORef rr (++ (map snd pq))
-          -- SortBy f -> forM_ pq $ \(_, r) -> modifyIORef rr (\rs -> snd $ insertBy' (comparing (foldExpr f)) r rs 0)
-        readIORef rr >>= cb
-      Nothing -> do
-        return ()
-  -}
+  forkIO $ go cq rs
+
   return rs
+  where
+    go q rs = do
+      nt <- PS.getNotification conn
+      case A.decode (BL.fromStrict $ PS.notificationData nt) of
+        Just (action, a) -> do
+          (q', so, as) <- passesQuery conn (DBValue action (B.unpack $ PS.notificationChannel nt) a) q
+          let rs' = reconcile so as rs
+          cb rs'
+          go q' rs'
+        Nothing -> go q rs
+
 
 test :: IO ()
 test = do
