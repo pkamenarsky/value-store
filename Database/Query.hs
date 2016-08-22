@@ -347,7 +347,7 @@ updateCache (QueryCache (Just cache)) f (Just limit) a = do
 
 data Action = Insert | Delete
 
-type Cache t a = [K t a]
+type Cache t a = [a]
 
 passesQuery :: PS.Connection
             -> DBValue
@@ -364,9 +364,13 @@ passesQuery conn row (Sort (l, cache) _cache label limit q) = do
   (cache', as') <- go label cache as
   return (Sort (l, cache') _cache label limit qc, as')
   where
+    go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
-      | (i', cache') <- insertBy' (\a b -> foldExpr expr (unK $ unK a) `compare` foldExpr expr (unK $ unK b)) (K undefined a) cache 0
-      , i' < fromMaybe maxBound limit = return (cache', [(Insert, a)])
+      | (i', cache') <- insertBy' (comparing (foldExpr expr . unK)) a cache 0
+      , i' < fromMaybe maxBound limit = do
+          (cache'', as') <- go expr cache' as
+          return (cache'', (Insert, a):as')
+
 {-
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
