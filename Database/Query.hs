@@ -140,14 +140,14 @@ type Key = String
 data Query' a l where
   All    :: A.FromJSON a => l -> Row -> Query' (K Key a) l
   Filter :: l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (Ord b, PS.FromRow a) => l -> QueryCache a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (Ord b, PS.FromRow a, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
-type CQuery a = Query' a (String, Cache () a)
+type CQuery a = Query' a String
 
 all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K Key a)
 all = All () (Row table [ k | (k, _) <- kvs ])
@@ -158,8 +158,8 @@ all = All () (Row table [ k | (k, _) <- kvs ])
 filter :: Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
-sort :: (Ord b, PS.FromRow a) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
-sort = Sort () (QueryCache Nothing)
+sort :: (Ord b, Show a, PS.FromRow a) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
+sort = Sort () []
 
 join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
@@ -353,17 +353,17 @@ type Cache t a = [a]
 passesQuery :: PS.Connection
             -> DBValue
             -> CQuery (K t a)
-            -> IO (CQuery (K t a), [(Action, K t a)])
+            -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
-  | r == r', A.Success a <- A.fromJSON value = return (qq, [(action, a)])
-  | otherwise = return (qq, [])
+  | r == r', A.Success a <- A.fromJSON value = return (qq, Unsorted, [(action, a)])
+  | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
-  (qc, as) <- passesQuery conn row q
-  return (Filter l f qc, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
-passesQuery conn row (Sort (l, cache) _cache label offset limit q) = do
-  (qc, as)      <- passesQuery conn row q
-  (cache', as') <- go label cache as
-  return (Sort (l, cache') _cache label offset limit qc, as')
+  (qc, so, as) <- passesQuery conn row q
+  return (Filter l f qc, so, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
+passesQuery conn row (Sort l cache expr offset limit q) = do
+  (qc, _, as)   <- passesQuery conn row q
+  (cache', as') <- go expr cache as
+  return (Sort l cache' expr offset limit qc, SortBy expr, as')
   where
     go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
@@ -374,27 +374,25 @@ passesQuery conn row (Sort (l, cache) _cache label offset limit q) = do
       | otherwise = go expr cache as
     go expr cache ((Delete, a):as) = do
       -- TODO: test sort
-      as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort (l, cache) _cache label (Just $ fromMaybe 0 offset + length cache - 1) limit q)
+      as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
       go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as)
+passesQuery conn row (Join l f ql qr) = do
+  (qcl, _, rl) <- passesQuery conn row ql
+  (qcr, _, rr) <- passesQuery conn row qr
 
-{-
-passesQuery conn (Join _ f ql qr) row = do
-  rl <- passesQuery conn ql row
-  rr <- passesQuery conn qr row
   if not (null rl)
     then do
-      rl' <- forM (snd rl) $ \(_, r) -> do
+      rl' <- forM rl $ \(action, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-        return [ (Unknown, K (key r ++ key l) (unK r :. unK l)) | l <- ls ]
-      return (Unsorted, concat rl')
+        return [ (action, K (key r ++ key l) (unK r :. unK l)) | l <- ls ]
+      return (Join l f qcl qcr, Unsorted, concat rl')
     else do
-      rr' <- forM (snd rr) $ \(_, r) -> do
+      rr' <- forM rr $ \(action, r) -> do
         ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
         -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-        return [ (Unknown, K (key l ++ key r) (unK l :. unK r)) | l <- ls ]
-      return (Unsorted, concat rr')
--}
+        return [ (action, K (key l ++ key r) (unK l :. unK r)) | l <- ls ]
+      return (Join l f qcl qcr, Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
@@ -405,8 +403,8 @@ fillCaches conn qq@(Sort l _ b offset limit q) = do
   cache <- case limit of
     Just _  -> do
       rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-      QueryCache . Just <$> newIORef rs
-    Nothing -> return $ QueryCache Nothing
+      return rs
+    Nothing -> return []
   q' <- fillCaches conn q
   return (Sort l cache b offset limit q')
 fillCaches conn (Join l a ql qr) = do
