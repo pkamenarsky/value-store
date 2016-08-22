@@ -261,30 +261,6 @@ streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
 
-{-
-class Actionable k v where
-  update :: Action -> k -> [K k v] -> [K k v]
-
-data Wildcard
-
-instance Actionable Key b where
-  update _ k v = v
-
-instance Actionable Wildcard b where
-  update _ k v = []
-
-instance (Actionable j a, Actionable k b) => Actionable (j :. k) (a :. b) where
-  update action (j :. k) v = [ K k' (a :. b) | (K k' a, K k'' b) <- zip js ks ]
-    where
-      js = update action j [ K k' a | K k' (a :. b) <- v ]
-      ks = update action k [ K k' b | K k' (a :. b) <- v ]
-
-kvs :: [K (Key :. (Wildcard :. Key)) (Person :. (Person :. Person))]
-kvs = undefined
-
-kvs' = update Delete undefined kvs
--}
-
 aliasColumns :: String -> Ctx -> String
 aliasColumns alias ctx = concat $ intersperse ", "
   [ case calias of
@@ -343,21 +319,9 @@ simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
-data Index a = Unknown | Index Int deriving Show
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
-
-updateCache :: Ord b => QueryCache a -> Expr a b -> Maybe Int -> a -> IO (Maybe (Index a))
-updateCache (QueryCache _) f Nothing a                 = return (Just Unknown)
-updateCache (QueryCache Nothing) f (Just limit) a      = error "No cache"
-updateCache (QueryCache (Just cache)) f (Just limit) a = do
-  rs <- readIORef cache
-  let (i, rs') = insertBy' (comparing (foldExpr f)) a rs 0
-  writeIORef cache (take limit rs')
-  if i < limit
-    then return (Just (Index i))
-    else return Nothing
 
 data Action = Insert | Delete deriving (Generic)
 
