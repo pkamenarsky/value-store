@@ -349,7 +349,10 @@ data Action = Insert | Delete
 
 type Cache t a = [K t a]
 
-passesQuery :: PS.Connection -> DBValue -> CQuery (K t a) -> IO (CQuery (K t a), [(Action, K t a)])
+passesQuery :: PS.Connection
+            -> DBValue
+            -> CQuery (K t a)
+            -> IO (CQuery (K t a), [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
   | r == r', A.Success a <- A.fromJSON value = return (qq, [(action, a)])
   | otherwise = return (qq, [])
@@ -357,13 +360,13 @@ passesQuery conn row qq@(Filter l f q) = do
   (qc, as) <- passesQuery conn row q
   return (Filter l f qc, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
 passesQuery conn row (Sort (l, cache) _cache label limit q) = do
-  (qc, as) <- passesQuery conn row q
+  (qc, as)      <- passesQuery conn row q
+  (cache', as') <- go label cache as
+  return (Sort (l, cache') _cache label limit qc, as')
   where
-    go cache (Insert, a)
-      | (i', cache') <- insertBy' (comparing (foldExpr label)) a cache 0
-      , i' < fromMaybe maxBound limit = do
-          write cache'
-          return [(Insert, a)]
+    go expr cache ((Insert, a):as)
+      | (i', cache') <- insertBy' (\a b -> foldExpr expr (unK $ unK a) `compare` foldExpr expr (unK $ unK b)) (K undefined a) cache 0
+      , i' < fromMaybe maxBound limit = return (cache', [(Insert, a)])
 {-
 passesQuery conn (Join _ f ql qr) row = do
   rl <- passesQuery conn ql row
