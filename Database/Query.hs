@@ -22,7 +22,7 @@ import qualified Data.Aeson as A
 import Data.Char
 import Data.Function              (on)
 import Data.IORef
-import Data.List                  (intersperse, delete)
+import Data.List                  (intersperse, deleteBy)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -66,17 +66,17 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
-data KP = KP String | Wildcard deriving (Generic, Typeable, Show)
+data KP = KP String | SP KP KP | WP deriving (Generic, Typeable, Show)
 
-data K t a = K { key :: [KP], unK :: a } deriving (Generic, Typeable, Show)
+data K t a = K { key :: KP, unK :: a } deriving (Generic, Typeable, Show)
 
-instance Eq (K t a) where
-  K [] _ == K [] _ = True
-  K [] _ == K _ _  = error "Keys don't have the same length"
-  K _ _  == K [] _ = error "Keys don't have the same length"
-  K (KP k:ks) a     == K (KP k':ks') a'    = k == k' && K ks a == K ks' a'
-  K (Wildcard:ks) a == K (_:ks') a'        = K ks a == K ks' a'
-  K (KP k:ks) a     == K (Wildcard:ks') a' = K ks a == K ks' a'
+instance Eq KP where
+  KP k   == KP k'    = k == k'
+  _      == WP       = True
+  WP     == _        = True
+  SP k l == SP k' l' = k == k' && k == l'
+  KP _   == SP _ _   = error "Key not structurally equivalent"
+  SP _ _ == KP _     = error "Key not structurally equivalent"
 
 instance A.FromJSON KP
 instance A.ToJSON KP
@@ -391,7 +391,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
     go expr cache ((Delete, a):as) = do
       -- TODO: test sort
       as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
-      (cache', as'') <- go expr (delete a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+      (cache', as'') <- go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
       return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
 passesQuery conn row (Join l f ql qr) = do
   (qcl, _, rl) <- passesQuery conn row ql
@@ -400,15 +400,23 @@ passesQuery conn row (Join l f ql qr) = do
   if not (null rl)
     then do
       rl' <- forM rl $ \(action, r) -> do
-        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
-        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-        return [ (action, K (key r ++ key l) (unK r :. unK l)) | l <- ls ]
+        case action of
+          Insert -> do
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
+            -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+            return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
+          Delete -> do
+            return [ (Delete, K (SP (key r) WP) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rl')
     else do
       rr' <- forM rr $ \(action, r) -> do
-        ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
-        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-        return [ (action, K (key l ++ key r) (unK l :. unK r)) | l <- ls ]
+        case action of
+          Insert -> do
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
+            -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+            return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
+          Delete -> do
+            return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rr')
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
