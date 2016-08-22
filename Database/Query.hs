@@ -71,7 +71,12 @@ data KP = KP String | Wildcard deriving (Generic, Typeable, Show)
 data K t a = K { key :: [KP], unK :: a } deriving (Generic, Typeable, Show)
 
 instance Eq (K t a) where
-  K kp _ == K kp' _ = undefined
+  K [] _ == K [] _ = True
+  K [] _ == K _ _  = error "Keys don't have the same length"
+  K _ _  == K [] _ = error "Keys don't have the same length"
+  K (KP k:ks) a     == K (KP k':ks') a'    = k == k' && K ks a == K ks' a'
+  K (Wildcard:ks) a == K (_:ks') a'        = K ks a == K ks' a'
+  K (KP k:ks) a     == K (Wildcard:ks') a' = K ks a == K ks' a'
 
 instance A.FromJSON KP
 instance A.ToJSON KP
