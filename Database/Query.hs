@@ -368,7 +368,7 @@ passesQuery conn row (Sort (l, cache) _cache label limit q) = do
     go expr cache ((Insert, a):as)
       | (i', cache') <- insertBy' (comparing (foldExpr expr . unK)) a cache 0
       , i' < fromMaybe maxBound limit = do
-          (cache'', as') <- go expr cache' as
+          (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')
 
 {-
