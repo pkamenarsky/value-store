@@ -22,7 +22,7 @@ import qualified Data.Aeson as A
 import Data.Char
 import Data.Function              (on)
 import Data.IORef
-import Data.List                  (intersperse, deleteBy)
+import Data.List                  (intersperse, deleteBy, insertBy)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -418,6 +418,14 @@ passesQuery conn row (Join l f ql qr) = do
           Delete -> do
             return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rr')
+
+reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
+reconcile' Unsorted (Insert, a) as      = a:as
+reconcile' (SortBy expr) (Insert, a) as = insertBy (comparing (foldExpr expr . unK)) a as
+reconcile' _ (Delete, a) as             = deleteBy ((==) `on` key) a as
+
+reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
+reconcile so = flip $ foldr (reconcile' so)
 
 fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
 fillCaches _ (All l a) = return (All l a)
