@@ -38,12 +38,14 @@ import Prelude hiding (filter, sort, all, join)
 import qualified Prelude as P
 
 import qualified Database.PostgreSQL.Simple as PS
+import qualified Database.PostgreSQL.Simple.Internal as PS
 import qualified Database.PostgreSQL.Simple.Types as PS
+import qualified Database.PostgreSQL.Simple.FromRow as PS
+import qualified Database.PostgreSQL.Simple.FromField as PS
 import qualified Database.PostgreSQL.Simple.ToField as PS
 import qualified Database.PostgreSQL.Simple.ToRow as PS
 import qualified Database.PostgreSQL.Simple.Notification as PS
 import Database.PostgreSQL.Simple.Types ((:.)(..))
-import qualified Database.PostgreSQL.Simple.FromRow as PS
 
 import System.IO.Unsafe
 
@@ -87,8 +89,14 @@ instance A.ToJSON a => A.ToJSON (K t a)
 instance PS.ToRow a => PS.ToRow (K t a) where
   toRow = undefined
 
+instance PS.FromField KP where
+  fromField = undefined
+
 instance PS.FromRow a => PS.FromRow (K t a) where
-  fromRow = undefined
+  fromRow = do
+    a <- PS.field
+    b <- PS.fromRow
+    return (K a b)
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
