@@ -92,11 +92,19 @@ instance PS.ToRow a => PS.ToRow (K t a) where
 instance PS.FromField KP where
   fromField = undefined
 
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow (K Key a) where
+  fromRow = undefined
+
+instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
+  fromRow = undefined
+
+{-
 instance PS.FromRow a => PS.FromRow (K t a) where
   fromRow = do
     a <- PS.field
     b <- PS.fromRow
     return (K a b)
+-}
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
@@ -159,10 +167,10 @@ data DBValue = DBValue Action String A.Value
 type Key = String
 
 data Query' a l where
-  All    :: A.FromJSON a => l -> Row -> Query' (K Key a) l
-  Filter :: l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (Ord b, PS.FromRow a, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
-  Join   :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
+  All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' (K Key a) l
+  Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
@@ -170,19 +178,19 @@ type Query a = Query' a ()
 type LQuery a = Query' a String
 type CQuery a = Query' a String
 
-all :: forall a. (Typeable a, Fields a, A.FromJSON a) => Query (K Key a)
+all :: forall a. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query (K Key a)
 all = All () (Row table [ k | (k, _) <- kvs ])
   where
     kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: Expr a Bool -> Query (K t a) -> Query (K t a)
+filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
-sort :: (Ord b, Show a, PS.FromRow a) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
+sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
 sort = Sort () []
 
-join :: (Show a, Show b, PS.FromRow a, PS.FromRow b) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
+join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
 
 queryLabel :: Query' a l -> l

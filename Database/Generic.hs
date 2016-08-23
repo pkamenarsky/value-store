@@ -117,6 +117,7 @@ getColumn r@(PS.Row{..}) obj = do
 
 deriving instance Show PS.Field
 
+{-
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = PS.RP $ do
     row <- ask
@@ -124,6 +125,7 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
     case cnst $ (\x -> trace (show x) x ) $ obj of
       Just x  -> lift $ lift x
       Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
+-}
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
