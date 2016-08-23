@@ -85,13 +85,15 @@ KP k   `cmpKP` KP k'    = k == k'
 _      `cmpKP` WP       = True
 WP     `cmpKP` _        = True
 SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
-_      `cmpKP` _        = error "Key not structurally equivalent"
+_      `cmpKP` _        = error "Keys not structurally equivalent"
 -- KP _   `cmpKP` SP _ _   = error "Key not structurally equivalent"
 -- SP _ _ `cmpKP` KP _     = error "Key not structurally equivalent"
 
+{-
 instance Fields a => PS.ToRow (K t a) where
   toRow a = PS.Escape (B.pack k):PS.toRow v
     where K (KP k) v = a
+-}
 
 instance Fields a => PS.FromRow (K Key a) where
   fromRow = do
@@ -178,9 +180,9 @@ type LQuery a = Query' a String
 type CQuery a = Query' a String
 
 all :: forall a. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query (K Key a)
-all = All () (Row table [ k | (k, _) <- kvs ])
+all = All () (Row table kvs)
   where
-    kvs    = flattenObject "" $ fields (Nothing :: Maybe a)
+    kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
 filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
@@ -433,16 +435,16 @@ listen = undefined
 mkRowParser :: Fields a => PS.RowParser a
 mkRowParser = undefined
 
-insertRow :: forall t a. (Typeable a, A.ToJSON a, Fields a) => PS.Connection -> String -> String -> a -> IO ()
+insertRow :: forall t a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> String -> a -> IO ()
 insertRow conn col k a = do
-  let kvs    = flattenObject "" $ fields (Just a)
+  let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
       table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
             <> table
-            <> " (" <> mconcat (intersperse ", " [ k | (k, _) <- kvs ]) <> ")"
+            <> " (" <> mconcat (intersperse ", " kvs) <> ")"
             <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
   print stmt
-  void $ PS.execute conn (PS.Query $ B.pack stmt) (K (KP k) a)
+  void $ PS.execute conn (PS.Query $ B.pack stmt) (k :. a)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (k, a))
 
 deriving instance Show PS.Notification
