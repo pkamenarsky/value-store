@@ -72,6 +72,10 @@ class Fields a where
   default cnst :: (Generic a, GFields (Rep a)) => Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
   cnst obj = fmap to <$> gCnst obj
 
+  cnstM :: Object PS.Action -> PS.RowParser a
+  default cnstM :: (Generic a, GFields (Rep a)) => Object PS.Action -> PS.RowParser a
+  cnstM obj = to <$> gCnstM obj
+
 instance PS.ToField Char where
   toField x = PS.toField [x]
 
@@ -80,6 +84,8 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   fields Nothing  = Value (PS.toField "")
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
+  cnstM (Value _) = PS.field
+  cnstM _ = fail "Expecting Value"
 
 getColumn :: Monad m => PS.Row -> a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
 getColumn r@(PS.Row{..}) obj = do
@@ -138,11 +144,13 @@ instance (Fields a, Fields b) => Fields (a, b) where
 class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
   gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
+  gCnstM :: Object PS.Action -> PS.RowParser (f a)
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
   gFields Nothing = gFields (Nothing :: Maybe (f ()))
   gCnst obj = fmap M1 <$> gCnst obj
+  gCnstM obj = M1 <$> gCnstM obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
   gFields (Just (M1 x)) = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
@@ -151,6 +159,10 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
     | Just (Value (_, Just cnst)) <- lookup "cnst" kvs
     , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
+  gCnstM obj@(Object kvs)
+    | Just (Value (PS.Escape cnst)) <- lookup "cnst" kvs
+    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = M1 <$> gCnstM obj
+  gCnstM _ = fail "Expecting constructor"
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
@@ -160,11 +172,16 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnst obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnst v
   gCnst _ = Nothing
+  gCnstM _ | null (selName (undefined :: S1 c f ())) = fail "Types without record selectors not supported yet"
+  gCnstM obj@(Object kvs)
+    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = M1 <$> gCnstM v
+  gCnstM _ = fail "Expecting selector"
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
   gCnst obj = fmap K1 <$> cnst obj
+  gCnstM obj = K1 <$> cnstM obj
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
