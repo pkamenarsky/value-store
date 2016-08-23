@@ -89,17 +89,9 @@ _      `cmpKP` _        = error "Key not structurally equivalent"
 -- KP _   `cmpKP` SP _ _   = error "Key not structurally equivalent"
 -- SP _ _ `cmpKP` KP _     = error "Key not structurally equivalent"
 
-instance A.FromJSON (KP t) where
-  parseJSON = undefined
-
-instance A.ToJSON (KP t) where
-  toJSON = undefined
-
-instance A.FromJSON a => A.FromJSON (K t a)
-instance A.ToJSON a => A.ToJSON (K t a)
-
-instance PS.ToRow a => PS.ToRow (K t a) where
-  toRow = undefined
+instance Fields a => PS.ToRow (K t a) where
+  toRow a = PS.Escape (B.pack k):PS.toRow v
+    where K (KP k) v = a
 
 instance Fields a => PS.FromRow (K Key a) where
   fromRow = do
@@ -112,14 +104,6 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
     a <- PS.fromRow
     b <- PS.fromRow
     return $ K (SP (key a) (key b)) (unK a :. unK b)
-
-{-
-instance PS.FromRow a => PS.FromRow (K t a) where
-  fromRow = do
-    a <- PS.field
-    b <- PS.fromRow
-    return (K a b)
--}
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
@@ -369,7 +353,7 @@ passesQuery :: PS.Connection
             -> CQuery (K t a)
             -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
-  | r == r', A.Success a <- A.fromJSON value = return (qq, Unsorted, [(action, a)])
+  | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) a)])
   | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
   (qc, so, as) <- passesQuery conn row q
@@ -449,8 +433,8 @@ listen = undefined
 mkRowParser :: Fields a => PS.RowParser a
 mkRowParser = undefined
 
-insertRow :: forall a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
-insertRow conn col a = do
+insertRow :: forall t a. (Typeable a, A.ToJSON a, Fields a) => PS.Connection -> String -> String -> a -> IO ()
+insertRow conn col k a = do
   let kvs    = flattenObject "" $ fields (Just a)
       table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
@@ -458,8 +442,8 @@ insertRow conn col a = do
             <> " (" <> mconcat (intersperse ", " [ k | (k, _) <- kvs ]) <> ")"
             <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
   print stmt
-  void $ PS.execute conn (PS.Query $ B.pack stmt) a
-  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON a)
+  void $ PS.execute conn (PS.Query $ B.pack stmt) (K (KP k) a)
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (k, a))
 
 deriving instance Show PS.Notification
 
@@ -495,11 +479,11 @@ test = do
   let rec  = (Person "john" 222)
       recr = Robot True
 
-  insertRow conn "person" rec
+  insertRow conn "person" "key1" rec
 
   let rec2 = (Address "doom" recr)
 
-  insertRow conn "person" rec2
+  insertRow conn "person" "key2" rec2
 
   return ()
 
