@@ -80,7 +80,7 @@ class Fields a where
 instance PS.ToField Char where
   toField x = PS.toField [x]
 
-instance (PS.FromField a, PS.ToField a) => Fields a where
+instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   fields (Just v) = Value (PS.toField v)
   fields Nothing  = Value (PS.toField "")
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
@@ -88,7 +88,7 @@ instance (PS.FromField a, PS.ToField a) => Fields a where
   cnstM (Value _) = (\x -> trace "FIELD " x) $ Just PS.field
   cnstM _ = Nothing
 
-instance Fields a => PS.ToRow a where
+instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
 
 class GFields f where
@@ -110,8 +110,10 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
     , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
   gCnstM obj@(Object kvs)
-    | Just (Value (PS.Escape cnst)) <- lookup "cnst" kvs
-    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnstM obj
+    | Just (Value (PS.Escape cnst)) <- (\x -> trace ("LOOKUP: " ++ show x ++ ", " ++ (conName (undefined :: C1 c f ()))) x) $ lookup "cnst" kvs
+    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = (\x -> trace ("CONST: " ++ BC.unpack cnst) x) $ do
+      x <- fmap M1 <$> gCnstM obj
+      return ((PS.field :: PS.RowParser String) >> x)
   gCnstM _ = Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
@@ -124,7 +126,7 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnst _ = Nothing
   gCnstM _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gCnstM obj@(Object kvs)
-    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnstM v
+    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = (\x -> trace ("SEL: " ++ (selName (undefined :: S1 c f ()))) x) $ fmap M1 <$> gCnstM v
   gCnstM _ = Nothing
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where

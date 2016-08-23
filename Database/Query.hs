@@ -99,6 +99,8 @@ instance Fields a => PS.FromRow (K Key a) where
   fromRow = do
     k <- PS.field
     a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
+    rmn <- PS.numFieldsRemaining
+    replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
     return $ K (KP k) a
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
@@ -475,18 +477,20 @@ data W a = W a deriving Show
 instance Fields a => PS.FromRow (W a) where
   fromRow = do
     a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
+    rmn <- PS.numFieldsRemaining
+    replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
     return (W a)
 
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
-  traceIO $ show rs
+  -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
+  -- traceIO $ show rs
 
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
-  -- rs <- query conn allPersons (traceIO . show)
-  -- traceIO $ show rs
+  rs <- query conn allPersons (traceIO . show)
+  traceIO $ show rs
 
   let rec  = (Person "john" 222)
       recr = Robot True
