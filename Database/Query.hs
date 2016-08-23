@@ -91,6 +91,7 @@ _      `cmpKP` _        = error "Key not structurally equivalent"
 
 instance A.FromJSON (KP t) where
   parseJSON = undefined
+
 instance A.ToJSON (KP t) where
   toJSON = undefined
 
@@ -100,11 +101,14 @@ instance A.ToJSON a => A.ToJSON (K t a)
 instance PS.ToRow a => PS.ToRow (K t a) where
   toRow = undefined
 
-instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow (K Key a) where
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow (K t a) where
   fromRow = undefined
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
-  fromRow = undefined
+  fromRow = do
+    a <- PS.fromRow
+    b <- PS.fromRow
+    return $ K (SP (key a) (key b)) (unK a :. unK b)
 
 {-
 instance PS.FromRow a => PS.FromRow (K t a) where
