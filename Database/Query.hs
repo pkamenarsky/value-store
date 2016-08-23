@@ -68,29 +68,41 @@ insertBy' cmp x ys@(y:ys') i
 -- data Expr tp r a where
 --   Fld  :: String -> (r -> a) -> Expr Field r a
 
-data KP = KP String | SP KP KP | WP deriving (Generic, Typeable, Show)
+-- data KP = KP String | SP KP KP | WP
+data KP t where
+  KP :: String -> KP Key
+  WP :: KP t
+  SP :: KP t -> KP u -> KP (t :. u)
 
-data K t a = K { key :: KP, unK :: a } deriving (Generic, Typeable, Show)
+-- deriving instance Generic (KP t)
+deriving instance Typeable (KP t)
+deriving instance Show (KP t)
 
-instance Eq KP where
+data K t a = K { key :: KP t, unK :: a } deriving (Generic, Typeable, Show)
+
+cmpKP :: KP t -> KP t -> Bool
+cmpKP = undefined
+
+{-
+instance Eq (KP t) where
   KP k   == KP k'    = k == k'
   _      == WP       = True
   WP     == _        = True
   SP k l == SP k' l' = k == k' && k == l'
   KP _   == SP _ _   = error "Key not structurally equivalent"
   SP _ _ == KP _     = error "Key not structurally equivalent"
+-}
 
-instance A.FromJSON KP
-instance A.ToJSON KP
+instance A.FromJSON (KP t) where
+  parseJSON = undefined
+instance A.ToJSON (KP t) where
+  toJSON = undefined
 
 instance A.FromJSON a => A.FromJSON (K t a)
 instance A.ToJSON a => A.ToJSON (K t a)
 
 instance PS.ToRow a => PS.ToRow (K t a) where
   toRow = undefined
-
-instance PS.FromField KP where
-  fromField = undefined
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow (K Key a) where
   fromRow = undefined
@@ -374,7 +386,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
     go expr cache ((Delete, a):as) = do
       -- TODO: test sort
       as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
-      (cache', as'') <- go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+      (cache', as'') <- go expr (deleteBy (cmpKP `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
       return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
 passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
   (qcl, _, rl) <- passesQuery conn row ql
@@ -405,7 +417,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = a:as
 reconcile' (SortBy expr) (Insert, a) as = insertBy (comparing (foldExpr expr . unK)) a as
-reconcile' _ (Delete, a) as             = deleteBy ((==) `on` key) a as
+reconcile' _ (Delete, a) as             = deleteBy (cmpKP `on` key) a as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
