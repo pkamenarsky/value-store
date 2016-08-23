@@ -101,8 +101,11 @@ instance A.ToJSON a => A.ToJSON (K t a)
 instance PS.ToRow a => PS.ToRow (K t a) where
   toRow = undefined
 
-instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow (K t a) where
-  fromRow = undefined
+instance Fields a => PS.FromRow (K Key a) where
+  fromRow = do
+    k <- PS.field
+    a <- cnstM $ fields (Nothing :: Maybe a)
+    return $ K (KP k) a
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
   fromRow = do
@@ -486,10 +489,8 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  {-
   rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
   traceIO $ show rs
-  -}
 
   let rec  = (Person "john" 222)
       recr = Robot True

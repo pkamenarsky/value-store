@@ -16,6 +16,7 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
 
+import Control.Applicative ((<|>))
 import Data.Proxy
 
 import GHC.Generics
@@ -87,59 +88,8 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   cnstM (Value _) = PS.field
   cnstM _ = fail "Expecting Value"
 
-getColumn :: Monad m => PS.Row -> a -> StateT PQ.Column m (PS.Field, Maybe (B.ByteString))
-getColumn r@(PS.Row{..}) obj = do
-  let unCol (PQ.Col x) = fromIntegral x :: Int
-  column <- get
-  put (column + 1)
-  let ncols = unsafeDupablePerformIO (PQ.nfields rowresult)
-  if (column >= ncols)
-  then do
-      {-
-      vals <- mapM (getTypenameByCol r) [0..ncols-1]
-      let err = ConversionFailed
-              (show (unCol ncols) ++ " values: " ++ show (map ellipsis vals))
-              Nothing
-              ""
-              ("at least " ++ show (unCol column + 1)
-                ++ " slots in target type")
-              "mismatch between number of columns to \
-              \convert and number in target type"
-      -}
-      let err = PS.ConversionFailed
-              ""
-              Nothing
-              ""
-              ""
-              "mismatch between number of columns to \
-              \convert and number in target type"
-      error $ show err
-  else do
-    let !result = rowresult
-        !typeOid = unsafeDupablePerformIO (PQ.ftype result column)
-        !field = PS.Field{..}
-        !value = unsafeDupablePerformIO (PQ.getvalue result row column)
-    return (field, value)
-
-deriving instance Show PS.Field
-
-{-
-instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
-  fromRow = PS.RP $ do
-    row <- ask
-    obj <- lift $ traverse (getColumn row) (fields (Nothing :: Maybe a))
-    case cnst $ (\x -> trace (show x) x ) $ obj of
-      Just x  -> lift $ lift x
-      Nothing -> lift $ lift $ PS.conversionError (PS.ConversionFailed "" Nothing "" "" "")
--}
-
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
-
-{-
-instance (Fields a, Fields b) => Fields (a, b) where
-  fields (Just (a, b)) = (,) <$> (fields (Just a) ++ fields (Just b))
--}
 
 class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
@@ -190,6 +140,10 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
     a <- gCnst obj
     b <- gCnst obj
     return $ fmap (:*:) a <*> b
+  gCnstM obj = do
+    a <- gCnstM obj
+    b <- gCnstM obj
+    return $ a :*: b
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
@@ -199,7 +153,9 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap L1 <$> gCnst obj = Just x
     | Just x <- fmap R1 <$> gCnst obj = Just x
   gCnst _ = Nothing
+  gCnstM obj = L1 <$> gCnstM obj <|> L1 <$> gCnstM obj
 
 instance GFields U1 where
   gFields _ = Empty
   gCnst _ = Nothing
+  gCnstM _ = fail "Unit field"
