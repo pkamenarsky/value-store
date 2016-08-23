@@ -376,7 +376,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
       as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
       (cache', as'') <- go expr (deleteBy ((==) `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
       return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
-passesQuery conn row (Join l f ql qr) = do
+passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
 
@@ -385,7 +385,7 @@ passesQuery conn row (Join l f ql qr) = do
       rl' <- forM rl $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr :: IO [K u b]
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
             return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
           Delete -> do
@@ -395,7 +395,7 @@ passesQuery conn row (Join l f ql qr) = do
       rr' <- forM rr $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql :: IO [K t a]
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
             return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
           Delete -> do
@@ -448,7 +448,7 @@ insertRow conn col a = do
 
 deriving instance Show PS.Notification
 
-query :: (Show a, PS.FromRow a) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
+query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
