@@ -73,34 +73,34 @@ class Fields a where
   default cnst :: (Generic a, GFields (Rep a)) => Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion a)
   cnst obj = fmap to <$> gCnst obj
 
-  cnstM :: Object PS.Action -> PS.RowParser a
-  default cnstM :: (Generic a, GFields (Rep a)) => Object PS.Action -> PS.RowParser a
-  cnstM obj = to <$> gCnstM obj
+  cnstM :: Object PS.Action -> Maybe (PS.RowParser a)
+  default cnstM :: (Generic a, GFields (Rep a)) => Object PS.Action -> Maybe (PS.RowParser a)
+  cnstM obj = fmap to <$> gCnstM obj
 
 instance PS.ToField Char where
   toField x = PS.toField [x]
 
-instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
+instance (PS.FromField a, PS.ToField a) => Fields a where
   fields (Just v) = Value (PS.toField v)
   fields Nothing  = Value (PS.toField "")
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
-  cnstM (Value _) = PS.field
-  cnstM _ = fail "Expecting Value"
+  cnstM (Value _) = (\x -> trace "FIELD " x) $ Just PS.field
+  cnstM _ = Nothing
 
-instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
+instance Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
 
 class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
   gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
-  gCnstM :: Object PS.Action -> PS.RowParser (f a)
+  gCnstM :: Object PS.Action -> Maybe (PS.RowParser (f a))
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
   gFields Nothing = gFields (Nothing :: Maybe (f ()))
   gCnst obj = fmap M1 <$> gCnst obj
-  gCnstM obj = M1 <$> gCnstM obj
+  gCnstM obj = fmap M1 <$> gCnstM obj
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
   gFields (Just (M1 x)) = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
@@ -111,8 +111,8 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
   gCnst _ = Nothing
   gCnstM obj@(Object kvs)
     | Just (Value (PS.Escape cnst)) <- lookup "cnst" kvs
-    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = M1 <$> gCnstM obj
-  gCnstM _ = fail "Expecting constructor"
+    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnstM obj
+  gCnstM _ = Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
@@ -122,16 +122,16 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnst obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnst v
   gCnst _ = Nothing
-  gCnstM _ | null (selName (undefined :: S1 c f ())) = fail "Types without record selectors not supported yet"
+  gCnstM _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gCnstM obj@(Object kvs)
-    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = M1 <$> gCnstM v
-  gCnstM _ = fail "Expecting selector"
+    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnstM v
+  gCnstM _ = Nothing
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
   gCnst obj = fmap K1 <$> cnst obj
-  gCnstM obj = K1 <$> cnstM obj
+  gCnstM obj = fmap K1 <$> cnstM obj
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
@@ -143,7 +143,7 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
   gCnstM obj = do
     a <- gCnstM obj
     b <- gCnstM obj
-    return $ a :*: b
+    return $ fmap (:*:) a <*> b
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
@@ -153,9 +153,12 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap L1 <$> gCnst obj = Just x
     | Just x <- fmap R1 <$> gCnst obj = Just x
   gCnst _ = Nothing
-  gCnstM obj = L1 <$> gCnstM obj <|> L1 <$> gCnstM obj
+  gCnstM obj
+    | Just x <- fmap L1 <$> gCnstM obj = Just x
+    | Just x <- fmap R1 <$> gCnstM obj = Just x
+  gCnstM _ = Nothing
 
 instance GFields U1 where
   gFields _ = Empty
   gCnst _ = Nothing
-  gCnstM _ = fail "Unit field"
+  gCnstM _ = Nothing

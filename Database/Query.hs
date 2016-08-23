@@ -98,7 +98,7 @@ instance Fields a => PS.ToRow (K t a) where
 instance Fields a => PS.FromRow (K Key a) where
   fromRow = do
     k <- PS.field
-    a <- cnstM $ fields (Nothing :: Maybe a)
+    a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
     return $ K (KP k) a
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
@@ -444,7 +444,7 @@ insertRow conn col k a = do
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
             <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
   print stmt
-  void $ PS.execute conn (PS.Query $ B.pack stmt) (k :. a)
+  void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (k, a))
 
 deriving instance Show PS.Notification
@@ -456,7 +456,7 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
-  forkIO $ go cq rs
+  -- forkIO $ go cq rs
 
   return rs
   where
@@ -470,18 +470,28 @@ query conn q cb = do
           go q' rs'
         Nothing -> go q rs
 
+data W a = W a deriving Show
+
+instance Fields a => PS.FromRow (W a) where
+  fromRow = do
+    a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
+    return (W a)
 
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
+  rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
+  traceIO $ show rs
+
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  -- rs <- query conn allPersons (traceIO . show)
   -- traceIO $ show rs
 
   let rec  = (Person "john" 222)
       recr = Robot True
 
-  insertRow conn "person" "key1" rec
+  insertRow conn "person" "key3" recr
 
   let rec2 = (Address "doom" recr)
 
