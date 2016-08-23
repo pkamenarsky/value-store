@@ -38,6 +38,7 @@ import Debug.Trace
 data Object a = Empty
               | Value a
               | Object [(String, Object a)]
+              | Sum (Object a) (Object a)
               deriving (Show, Functor, Foldable, Traversable)
 
 flattenObject :: String -> Object a -> [(String, a)]
