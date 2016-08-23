@@ -81,17 +81,13 @@ deriving instance Show (KP t)
 data K t a = K { key :: KP t, unK :: a } deriving (Generic, Typeable, Show)
 
 cmpKP :: KP t -> KP t -> Bool
-cmpKP = undefined
-
-{-
-instance Eq (KP t) where
-  KP k   == KP k'    = k == k'
-  _      == WP       = True
-  WP     == _        = True
-  SP k l == SP k' l' = k == k' && k == l'
-  KP _   == SP _ _   = error "Key not structurally equivalent"
-  SP _ _ == KP _     = error "Key not structurally equivalent"
--}
+KP k   `cmpKP` KP k'    = k == k'
+_      `cmpKP` WP       = True
+WP     `cmpKP` _        = True
+SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
+_      `cmpKP` _        = error "Key not structurally equivalent"
+-- KP _   `cmpKP` SP _ _   = error "Key not structurally equivalent"
+-- SP _ _ `cmpKP` KP _     = error "Key not structurally equivalent"
 
 instance A.FromJSON (KP t) where
   parseJSON = undefined
