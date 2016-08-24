@@ -452,17 +452,27 @@ listen = undefined
 mkRowParser :: Fields a => PS.RowParser a
 mkRowParser = undefined
 
-insertRow :: forall t a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> String -> a -> IO ()
-insertRow conn col k a = do
+insertRow :: forall a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
       table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
             <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
-  -- print stmt
+
+  -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Insert, (k, a)))
+
+deleteRow :: forall a. (Typeable a) => PS.Connection -> String -> Proxy a -> IO ()
+deleteRow conn k _ = do
+  let table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
+      stmt   = "delete from " <> table <> " where key = ? "
+
+  -- traceIO stmt
+  void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
 
 deriving instance Show PS.Notification
 
@@ -524,11 +534,11 @@ test = do
   let rec  = (Person "john" 222)
       recr = Robot True
 
-  insertRow conn "person" "key3" recr
+  insertRow conn "key3" recr
 
   let rec2 = (Address "doom" recr)
 
-  insertRow conn "person" "key2" rec2
+  insertRow conn "key2" rec2
   -}
 
   return ()
@@ -560,7 +570,11 @@ testSort = do
     (_, tid) <- query conn q cb
 
     forM [0..100] $ \k -> do
-      insertRow conn "person" ("key" ++ show k) (Person "john" k)
+      insertRow conn ("key" ++ show k) (Person "john" k)
+      putMVar lock ()
+
+    forM [0..100] $ \k -> do
+      deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
       putMVar lock ()
 
     killThread tid
