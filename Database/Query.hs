@@ -174,7 +174,7 @@ type Key = String
 
 data Query' st a l where
   All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' st (K Key a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr st a Bool -> Query' (st :+ st2) (K t a) l -> Query' st (K t a) l
+  Filter :: PS.FromRow (K t a) => l -> Expr st a Bool -> Query' st (K t a) l -> Query' st (K t a) l
   Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr st a b -> Maybe Int -> Maybe Int -> Query' st (K t a) l -> Query' st (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (st :. su) (a :. b) Bool -> Query' st (K t a) l -> Query' su (K u b) l -> Query' (st :. su) (K (t :. u) (a :. b)) l
 
@@ -184,20 +184,14 @@ type Query st a = Query' st a ()
 type LQuery st a = Query' st a String
 type CQuery st a = Query' st a String
 
-class CnstUnif a b
-
-instance {-# OVERLAPPABLE #-} CnstUnif t t
--- instance CnstUnif t (t :+ u)
-
 all :: forall a st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
 all = All () (Row table kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: (PS.FromRow (K t a), CnstUnif st st2) => Expr st a Bool -> Query st2 (K t a) -> Query st (K t a)
-filter = undefined
--- filter = Filter ()
+filter :: (PS.FromRow (K t a)) => Expr st a Bool -> Query st (K t a) -> Query st (K t a)
+filter = Filter ()
 
 sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr st a b -> Maybe Int -> Maybe Int -> Query st (K t a) -> Query st (K t a)
 sort = Sort () []
@@ -278,22 +272,24 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 
 instance Fields Image
 
-nameE :: Expr PersonC (Person) String
+data Cnst a
+
+nameE :: Expr (Cnst PersonC) (Person) String
 nameE = Fld "name" _name
 
-ageE :: Expr PersonC (Person) Int
+ageE :: Expr (Cnst PersonC) (Person) Int
 ageE = Fld "age" _age
 
-aiE :: Expr RobotC (Person) Bool
+aiE :: Expr (Cnst RobotC) (Person) Bool
 aiE = Fld "ai" _ai
 
-killsE :: Expr UndeadC Person Int
+killsE :: Expr (Cnst UndeadC) Person Int
 killsE = Fld "kills" _kills
 
-personE :: Expr AddressC (Address) Person
+personE :: Expr (Cnst AddressC) (Address) Person
 personE = Fld "person" _person
 
-streetE :: Expr AddressC (Address) String
+streetE :: Expr (Cnst AddressC) (Address) String
 streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
@@ -367,7 +363,7 @@ simplesql = fst $ foldQuerySql (labelQuery simple)
 valid = join (Fst killsE `Eqs` Snd ageE) (filter (killsE `Eqs` Cnst 5) allPersons) (filter (ageE `Eqs` Cnst 222) $ allPersons)
 -}
 
-valid2 = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
+-- valid2 = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
 
 data SortOrder t a = forall b. Ord b => SortBy (Expr t a b) | Unsorted
 
