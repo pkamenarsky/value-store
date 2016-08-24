@@ -14,7 +14,8 @@
 
 module Database.Query where
 
-import Control.Monad.State hiding (join)
+import Control.Monad (forM, void, replicateM_)
+import Control.Monad.Trans.State.Strict hiding (join)
 import Control.Concurrent
 
 import qualified Data.Aeson as A
@@ -98,9 +99,9 @@ instance Fields a => PS.ToRow (K t a) where
 instance Fields a => PS.FromRow (K Key a) where
   fromRow = do
     k <- PS.field
-    a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
-    rmn <- PS.numFieldsRemaining
-    replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
+    a <- evalStateT cnstS ""
+    -- rmn <- PS.numFieldsRemaining
+    -- replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
     return $ K (KP k) a
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
@@ -476,9 +477,12 @@ data W a = W a deriving Show
 
 instance Fields a => PS.FromRow (W a) where
   fromRow = do
+    a <- evalStateT cnstS ""
+    {-
     a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
     rmn <- PS.numFieldsRemaining
     replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
+    -}
     return (W a)
 
 test :: IO ()
