@@ -350,7 +350,6 @@ allPersons = all
 allAddresses :: Query st (K Key Address)
 allAddresses = all
 
-{-
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
@@ -361,9 +360,8 @@ simplesql = fst $ foldQuerySql (labelQuery simple)
 
 -- valid :: _
 valid = join (Fst killsE `Eqs` Snd ageE) (filter (killsE `Eqs` Cnst 5) allPersons) (filter (ageE `Eqs` Cnst 222) $ allPersons)
--}
 
--- valid2 = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
+-- invalid = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
 
 data SortOrder t a = forall b. Ord b => SortBy (Expr t a b) | Unsorted
 
