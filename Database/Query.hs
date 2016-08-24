@@ -279,6 +279,9 @@ ageE = Fld "age" _age
 aiE :: Expr RobotC (Person) Bool
 aiE = Fld "ai" _ai
 
+killsE :: Expr UndeadC Person Int
+killsE = Fld "kills" _kills
+
 personE :: Expr AddressC (Address) Person
 personE = Fld "person" _person
 
@@ -334,7 +337,7 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
--- allPersons :: Query (K Key Person)
+allPersons :: Query st (K Key Person)
 allPersons = all
 
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
@@ -344,6 +347,8 @@ simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
+
+valid = join (Fst killsE `Eqs` Snd ageE) (filter (killsE `Eqs` Cnst 5) allPersons) (filter (ageE `Eqs` Cnst 222) $ allPersons)
 
 data SortOrder t a = forall b. Ord b => SortBy (Expr t a b) | Unsorted
 
