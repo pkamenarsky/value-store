@@ -324,7 +324,7 @@ q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd age
 q1sql = fst $ foldQuerySql (labelQuery q1)
 
 -- q2 :: _ -- Query ((Person, Person), Person)
-q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Grt` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Grt` Cnst 666)) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Grt` Snd ageE) (join (Fst ageE `Grt` Snd ageE) allPersons allPersons) allPersons)
+q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Eqs` Cnst 222)) (join (Fst ageE `Eqs` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Eqs` Snd ageE) (join (Fst ageE `Eqs` Snd ageE) allPersons allPersons) allPersons)
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
@@ -343,7 +343,7 @@ data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
 
-data Action = Insert | Delete deriving (Generic)
+data Action = Insert | Delete deriving (Show, Generic)
 
 instance A.FromJSON Action
 instance A.ToJSON Action
@@ -446,9 +446,9 @@ insertRow conn col k a = do
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
             <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
-  print stmt
+  -- print stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a)
-  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (k, a))
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Insert, (k, a)))
 
 deriving instance Show PS.Notification
 
@@ -459,7 +459,7 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
-  -- forkIO $ go cq rs
+  forkIO $ go cq rs
 
   return rs
   where
@@ -467,7 +467,10 @@ query conn q cb = do
       nt <- PS.getNotification conn
       case A.decode (BL.fromStrict $ PS.notificationData nt) of
         Just (action, a) -> do
+          traceIO $ show action
           (q', so, as) <- passesQuery conn (DBValue action (B.unpack $ PS.notificationChannel nt) a) q
+          traceIO "ACTIONS: "
+          traceIO $ show as
           let rs' = reconcile so as rs
           cb rs'
           go q' rs'
@@ -492,8 +495,9 @@ test = do
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
 
-  -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
-  rs <- query conn allPersons (traceIO . show)
+  rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  -- rs <- query conn q2 (traceIO . show)
+  -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
   traceIO $ show rs
 
   let rec  = (Person "john" 222)
