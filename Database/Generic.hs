@@ -92,9 +92,9 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   fields Nothing  = Value (PS.toField "")
   cnst (Value (f, bs)) = Just (PS.fromField f bs)
   cnst _ = Nothing
-  cnstM (Value _) = (\x -> trace "FIELD " x) $ Just PS.field
+  cnstM (Value _) = Just PS.field
   cnstM _ = Nothing
-  cnstS = (\x -> trace "FIELD " x) $ lift $ PS.field
+  cnstS = lift $ PS.field
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
@@ -112,7 +112,7 @@ instance GFields f => GFields (D1 i f) where
   gCnstM obj = fmap M1 <$> gCnstM obj
   gCnstS = do
     cnst <- lift $ PS.field
-    put $ (\x -> trace ("CNST " ++ cnst) x) $ cnst
+    put cnst
     fmap M1 <$> gCnstS
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
@@ -123,16 +123,12 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
     , BC.unpack cnst == (conName (undefined :: C1 c f ())) = fmap M1 <$> gCnst obj
   gCnst _ = Nothing
   gCnstM obj@(Object kvs)
-    | Just (Value (PS.Escape cnst)) <- (\x -> trace ("LOOKUP: " ++ show x ++ ", " ++ (conName (undefined :: C1 c f ()))) x) $ lookup "cnst" kvs
-    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = (\x -> trace ("CONST: " ++ BC.unpack cnst) x) $ do
+    | Just (Value (PS.Escape cnst)) <- lookup "cnst" kvs
+    , BC.unpack cnst == (conName (undefined :: C1 c f ())) = do
       x <- fmap M1 <$> gCnstM obj
       return ((PS.field :: PS.RowParser String) >> x)
   gCnstM _ = Nothing
-  gCnstS = do
-    cnst <- get
-    if (\x -> trace ("C1 " ++ (conName (undefined :: C1 c f ())) ++ " " ++ cnst ++ " " ++ show ((conName (undefined :: C1 c f ())) == cnst)) x ) $ (conName (undefined :: C1 c f ())) == cnst
-      then fmap M1 <$> gCnstS
-      else return Nothing
+  gCnstS = fmap M1 <$> gCnstS
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
@@ -144,9 +140,9 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnst _ = Nothing
   gCnstM _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gCnstM obj@(Object kvs)
-    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = (\x -> trace ("SEL: " ++ (selName (undefined :: S1 c f ()))) x) $ fmap M1 <$> gCnstM v
+    | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = fmap M1 <$> gCnstM v
   gCnstM _ = Nothing
-  gCnstS = fmap M1 <$> ((\x -> trace "SEL" x ) $ gCnstS)
+  gCnstS = fmap M1 <$> gCnstS
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
@@ -184,8 +180,8 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap R1 <$> gCnstM obj = Just x
   gCnstM _ = Nothing
   gCnstS = do
-    x <- fmap L1 <$> ((\x -> trace "L1" x ) $ gCnstS)
-    y <- fmap R1 <$> ((\x -> trace "R1" x ) $ gCnstS)
+    x <- fmap L1 <$> gCnstS
+    y <- fmap R1 <$> gCnstS
     return $ x <|> y
 
 instance GFields U1 where
@@ -193,10 +189,3 @@ instance GFields U1 where
   gCnst _ = Nothing
   gCnstM _ = Nothing
   gCnstS = return Nothing
-
-nfields result = unsafeDupablePerformIO (PQ.nfields result)
-
-finishParsing :: PS.RowParser ()
-finishParsing = PS.RP $ do
-  PS.Row{..} <- ask
-  lift $ put (nfields rowresult)
