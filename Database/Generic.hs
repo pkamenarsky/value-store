@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -12,6 +13,7 @@
 
 module Database.Generic where
 
+import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
@@ -38,7 +40,7 @@ import Debug.Trace
 data Object a = Empty
               | Value a
               | Object [(String, Object a)]
-              | Sum (Object a) (Object a)
+              -- | Sum (Object a) (Object a)
               deriving (Show, Functor, Foldable, Traversable)
 
 flattenObject :: String -> Object a -> [(String, a)]
@@ -78,6 +80,10 @@ class Fields a where
   default cnstM :: (Generic a, GFields (Rep a)) => Object PS.Action -> Maybe (PS.RowParser a)
   cnstM obj = fmap to <$> gCnstM obj
 
+  cnstS :: StateT String PS.RowParser a
+  default cnstS :: (Generic a, GFields (Rep a)) => StateT String PS.RowParser a
+  cnstS = to <$> gCnstS
+
 instance PS.ToField Char where
   toField x = PS.toField [x]
 
@@ -88,6 +94,7 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   cnst _ = Nothing
   cnstM (Value _) = (\x -> trace "FIELD " x) $ Just PS.field
   cnstM _ = Nothing
+  cnstS = lift $ PS.field
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
@@ -96,12 +103,17 @@ class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
   gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
   gCnstM :: Object PS.Action -> Maybe (PS.RowParser (f a))
+  gCnstS :: StateT String PS.RowParser (f a)
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
   gFields Nothing = gFields (Nothing :: Maybe (f ()))
   gCnst obj = fmap M1 <$> gCnst obj
   gCnstM obj = fmap M1 <$> gCnstM obj
+  gCnstS = do
+    cnst <- lift $ PS.field
+    put cnst
+    M1 <$> gCnstS
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
   gFields (Just (M1 x)) = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
@@ -116,6 +128,11 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
       x <- fmap M1 <$> gCnstM obj
       return ((PS.field :: PS.RowParser String) >> x)
   gCnstM _ = Nothing
+  gCnstS = do
+    cnst <- get
+    if (conName (undefined :: C1 c f ())) == cnst
+      then M1 <$> gCnstS
+      else fail "Not this constructor"
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
@@ -129,12 +146,14 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnstM obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = (\x -> trace ("SEL: " ++ (selName (undefined :: S1 c f ()))) x) $ fmap M1 <$> gCnstM v
   gCnstM _ = Nothing
+  gCnstS = M1 <$> gCnstS
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
   gCnst obj = fmap K1 <$> cnst obj
   gCnstM obj = fmap K1 <$> cnstM obj
+  gCnstS = K1 <$> cnstS
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
@@ -147,6 +166,12 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
     a <- gCnstM obj
     b <- gCnstM obj
     return $ fmap (:*:) a <*> b
+  gCnstS = do
+    a <- gCnstS
+    b <- gCnstS
+    return $ a :*: b
+
+deriving instance MonadPlus PS.RowParser
 
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
@@ -160,8 +185,10 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap L1 <$> gCnstM obj = Just x
     | Just x <- fmap R1 <$> gCnstM obj = Just x
   gCnstM _ = Nothing
+  gCnstS = L1 <$> gCnstS <|> R1 <$> gCnstS
 
 instance GFields U1 where
   gFields _ = Empty
   gCnst _ = Nothing
   gCnstM _ = Nothing
+  gCnstS = fail "Unit"
