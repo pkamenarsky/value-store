@@ -545,7 +545,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  forM_ [0..10] $ \limit -> do
+  forM_ [0..50] $ \limit -> do
     PS.execute_ conn "delete from person"
 
     lock <- newMVar ()
@@ -553,15 +553,15 @@ testSort = do
     let q  = sort ageE (Just 0) (Just limit) allPersons
         cb rs = do
           rs' <- query_ conn q
-          putMVar lock ()
+          takeMVar lock
           if (rs /= rs')
             then error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs ++ ", query: " ++ show q
             else traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
     (_, tid) <- query conn q cb
 
-    forM [0..50] $ \k -> do
+    forM [0..100] $ \k -> do
       insertRow conn "person" ("key" ++ show k) (Person "john" k)
-      takeMVar lock
+      putMVar lock ()
 
     killThread tid
 
