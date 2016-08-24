@@ -110,8 +110,10 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
     b <- PS.fromRow
     return $ K (SP (key a) (key b)) (unK a :. unK b)
 
+data t :+ u
+
 data Expr t r a where
-  (:+:) :: Expr t a b -> Expr t b c -> Expr t a c
+  (:+:) :: Expr t a b -> Expr u b c -> Expr (t :+ u) a c
   Cnst  :: Show a => a -> Expr t r a
   Fld   :: String -> (r -> a) -> Expr t r a
   Fst   :: Show a => Expr t r a -> Expr (t :. u) (r :. s) a
@@ -172,7 +174,7 @@ type Key = String
 
 data Query' st a l where
   All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' st (K Key a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr st a Bool -> Query' st (K t a) l -> Query' st (K t a) l
+  Filter :: PS.FromRow (K t a) => l -> Expr st a Bool -> Query' (st :+ st2) (K t a) l -> Query' st (K t a) l
   Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr st a b -> Maybe Int -> Maybe Int -> Query' st (K t a) l -> Query' st (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (st :. su) (a :. b) Bool -> Query' st (K t a) l -> Query' su (K u b) l -> Query' (st :. su) (K (t :. u) (a :. b)) l
 
@@ -182,14 +184,20 @@ type Query st a = Query' st a ()
 type LQuery st a = Query' st a String
 type CQuery st a = Query' st a String
 
+class CnstUnif a b
+
+instance CnstUnif t t
+instance CnstUnif (t :+ u) t
+
 all :: forall a st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
 all = All () (Row table kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: PS.FromRow (K t a) => Expr st a Bool -> Query st (K t a) -> Query st (K t a)
-filter = Filter ()
+filter :: (PS.FromRow (K t a), CnstUnif st st2) => Expr st a Bool -> Query st (K t a) -> Query st2 (K t a)
+filter = undefined
+-- filter = Filter ()
 
 sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr st a b -> Maybe Int -> Maybe Int -> Query st (K t a) -> Query st (K t a)
 sort = Sort () []
@@ -213,7 +221,7 @@ labelQuery expr = evalState (traverse (const genVar) expr) 0
 substFst :: Expr (st :. su) (l :. r) a -> l -> Expr su r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
-substFst (_ :+: _ ) sub = error "Invalid field access"
+-- substFst (_ :+: _ ) sub = error "Invalid field access"
 substFst (Fst f) sub = Cnst (foldExpr f sub)
 substFst (Snd f) sub = f
 substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
@@ -224,7 +232,7 @@ substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 substSnd :: Expr (st :. su) (l :. r) a -> r -> Expr st l a
 substSnd (Cnst a) sub = Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
-substSnd (_ :+: _ ) sub = error "Invalid field access"
+-- substSnd (_ :+: _ ) sub = error "Invalid field access"
 substSnd (Fst f) sub = f
 substSnd (Snd f) sub = Cnst (foldExpr f sub)
 substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
@@ -340,6 +348,9 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 allPersons :: Query st (K Key Person)
 allPersons = all
 
+allAddresses :: Query st (K Key Address)
+allAddresses = all
+
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
@@ -348,7 +359,10 @@ simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
+-- valid :: _
 valid = join (Fst killsE `Eqs` Snd ageE) (filter (killsE `Eqs` Cnst 5) allPersons) (filter (ageE `Eqs` Cnst 222) $ allPersons)
+
+valid2 = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
 
 data SortOrder t a = forall b. Ord b => SortBy (Expr t a b) | Unsorted
 
