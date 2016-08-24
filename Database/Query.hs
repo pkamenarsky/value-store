@@ -110,21 +110,21 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
     b <- PS.fromRow
     return $ K (SP (key a) (key b)) (unK a :. unK b)
 
-data Expr r a where
-  (:+:) :: Expr a b -> Expr b c -> Expr a c
-  Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr r a
-  Fst   :: Show a => Expr r a -> Expr (r :. s) a
-  Snd   :: Show a => Expr s a -> Expr (r :. s) a
-  And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
-  Grt   :: Ord a => Expr r a -> Expr r a -> Expr r Bool
-  Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
-  Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
+data Expr t r a where
+  (:+:) :: Expr t a b -> Expr t b c -> Expr t a c
+  Cnst  :: Show a => a -> Expr t r a
+  Fld   :: String -> (r -> a) -> Expr t r a
+  Fst   :: Show a => Expr t r a -> Expr t (r :. s) a
+  Snd   :: Show a => Expr t s a -> Expr t (r :. s) a
+  And   :: Expr t r Bool -> Expr t r Bool -> Expr t r Bool
+  Grt   :: Ord a => Expr t r a -> Expr t r a -> Expr t r Bool
+  Eqs   :: Eq  a => Expr t r a -> Expr t r a -> Expr t r Bool
+  Plus  :: Num n => Expr t r n -> Expr t r n -> Expr t r n
 
 instance Show (a -> b) where
   show _ = "(a -> b)"
 
-deriving instance Show (Expr r a)
+deriving instance Show (Expr t r a)
 
 genVar :: State Int String
 genVar = do
@@ -147,7 +147,7 @@ lookupVar ctx name =
     []                  -> error "No such var"
     _                   -> error "More than one var"
 
-foldExprSql :: Ctx -> Expr r a -> String
+foldExprSql :: Ctx -> Expr t r a -> String
 foldExprSql ctx (Cnst a) = show a
 foldExprSql ctx (Fld name _) = lookupVar ctx name
 foldExprSql ctx (Fld name _ :+: Fld name' _) = lookupVar ctx (name ++ "_" ++ name')
@@ -170,47 +170,47 @@ data DBValue = DBValue Action String A.Value
 
 type Key = String
 
-data Query' a l where
-  All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' (K Key a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
-  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
+data Query' st a l where
+  All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' st (K Key a) l
+  Filter :: PS.FromRow (K t a) => l -> Expr t a Bool -> Query' st (K t a) l -> Query' st (K t a) l
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr st a b -> Maybe Int -> Maybe Int -> Query' st (K t a) l -> Query' st (K t a) l
+  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (st :. su) (a :. b) Bool -> Query' st (K t a) l -> Query' su (K u b) l -> Query' (st :. su) (K (t :. u) (a :. b)) l
 
-deriving instance (Show l, Show a) => Show (Query' a l)
+deriving instance (Show l, Show a) => Show (Query' t a l)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
 type CQuery a = Query' a String
 
-all :: forall a. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query (K Key a)
+all :: forall a t st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
 all = All () (Row table kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
+filter :: PS.FromRow (K t a) => Expr st a Bool -> Query st (K t a) -> Query st (K t a)
 filter = Filter ()
 
-sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
+sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr st a b -> Maybe Int -> Maybe Int -> Query st (K t a) -> Query st (K t a)
 sort = Sort () []
 
-join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
+join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (st :. su) (a :. b) Bool -> Query st (K t a) -> Query su (K u b) -> Query (st :. su) (K (t :. u) (a :. b))
 join = Join ()
 
-queryLabel :: Query' a l -> l
+queryLabel :: Query' st a l -> l
 queryLabel (All l _) = l
 queryLabel (Filter l _ _) = l
 queryLabel (Sort l _ _ _ _ _) = l
 queryLabel (Join l _ _ _) = l
 
-deriving instance Functor (Query' a)
-deriving instance Foldable (Query' a)
-deriving instance Traversable (Query' a)
+deriving instance Functor (Query' t a)
+deriving instance Foldable (Query' t a)
+deriving instance Traversable (Query' t a)
 
-labelQuery :: Query' a l -> LQuery a
+labelQuery :: Query' st a l -> LQuery st a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
-substFst :: Expr (l :. r) a -> l -> Expr r a
+substFst :: Expr (st :. su) (l :. r) a -> l -> Expr su r a
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
 substFst (_ :+: _ ) sub = error "Invalid field access"
@@ -221,7 +221,7 @@ substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
 substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
 
-substSnd :: Expr (l :. r) a -> r -> Expr l a
+substSnd :: Expr (st :. su) (l :. r) a -> r -> Expr st l a
 substSnd (Cnst a) sub = Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (_ :+: _ ) sub = error "Invalid field access"
@@ -232,7 +232,7 @@ substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
 substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
 substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 
-foldExpr :: Expr r a -> (r -> a)
+foldExpr :: Expr st r a -> (r -> a)
 foldExpr (Cnst a) = const a
 foldExpr (Fld _ get) = get
 foldExpr (f :+: g) = foldExpr g . foldExpr f
@@ -245,9 +245,15 @@ foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
 
 --------------------------------------------------------------------------------
 
+data PersonC
+data RobotC
+data UndeadC
+
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
             | Undead { _kills :: Int } deriving (Generic, Typeable, Show)
+
+data AddressC
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
@@ -264,19 +270,19 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 
 instance Fields Image
 
-nameE :: Expr (Person) String
+nameE :: Expr PersonC (Person) String
 nameE = Fld "name" _name
 
-ageE :: Expr (Person) Int
+ageE :: Expr PersonC (Person) Int
 ageE = Fld "age" _age
 
-aiE :: Expr (Person) Bool
+aiE :: Expr RobotC (Person) Bool
 aiE = Fld "ai" _ai
 
-personE :: Expr (Address) Person
+personE :: Expr AddressC (Address) Person
 personE = Fld "person" _person
 
-streetE :: Expr (Address) String
+streetE :: Expr AddressC (Address) String
 streetE = Fld "street" _street
 
 --------------------------------------------------------------------------------
@@ -289,7 +295,7 @@ aliasColumns alias ctx = concat $ intersperse ", "
   | (_, calias, col) <- ctx
   ]
 
-foldQuerySql :: LQuery a -> (String, Ctx)
+foldQuerySql :: LQuery st a -> (String, Ctx)
 foldQuerySql (All l (Row row cols)) =
   ( "select " ++ aliasColumns l ([ ([], Nothing, col) | col <- cols ]) ++ " from " ++ row
   , [ ([], Just l, col) | col <- cols ]
@@ -316,7 +322,7 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
-qr :: Query (K Key Person)
+-- qr :: Query (K Key Person)
 qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -328,10 +334,10 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
-allPersons :: Query (K Key Person)
+-- allPersons :: Query (K Key Person)
 allPersons = all
 
-simplejoin = sort (Fst ageE) Nothing (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 -- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -339,9 +345,9 @@ simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 simple = filter (ageE `Grt` Cnst 7) $ filter (ageE `Grt` Cnst 7) $ {- join (Fst ageE `Grt` Snd ageE) allPersons -} (filter (ageE `Grt` Cnst 6) allPersons)
 simplesql = fst $ foldQuerySql (labelQuery simple)
 
-data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
+data SortOrder t a = forall b. Ord b => SortBy (Expr t a b) | Unsorted
 
-deriving instance Show (SortOrder a)
+deriving instance Show (SortOrder t a)
 
 data Action = Insert | Delete deriving (Show, Generic)
 
@@ -355,8 +361,8 @@ type Cache t a = [a]
 -- a delete happens, Join (or something else) expects data to be there.
 passesQuery :: PS.Connection
             -> DBValue
-            -> CQuery (K t a)
-            -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
+            -> CQuery st (K t a)
+            -> IO (CQuery st (K t a), SortOrder st a, [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
   | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) a)])
   | otherwise = return (qq, Unsorted, [])
@@ -406,15 +412,15 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
             return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rr')
 
-reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
+reconcile' :: SortOrder st a -> (Action, K t a) -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = a:as
 reconcile' (SortBy expr) (Insert, a) as = insertBy (comparing (foldExpr expr . unK)) a as
 reconcile' _ (Delete, a) as             = deleteBy (cmpKP `on` key) a as
 
-reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
+reconcile :: SortOrder st a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
 
-fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
+fillCaches :: PS.Connection -> LQuery st a -> IO (LQuery st a)
 fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
@@ -452,7 +458,7 @@ insertRow conn col k a = do
 
 deriving instance Show PS.Notification
 
-query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
+query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query st (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
@@ -495,11 +501,13 @@ test = do
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
 
-  rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  rs <- query conn simplejoin (traceIO . ("CB: "++ ) . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
   traceIO $ show rs
 
+  {-
   let rec  = (Person "john" 222)
       recr = Robot True
 
@@ -508,7 +516,16 @@ test = do
   let rec2 = (Address "doom" recr)
 
   insertRow conn "person" "key2" rec2
+  -}
 
   return ()
+
+env :: IO (PS.Connection, Person, Address)
+env = do
+  conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
+  let p = Robot True
+      a = Address "doom" p
+
+  return (conn, p, a)
 
 --------------------------------------------------------------------------------
