@@ -94,7 +94,7 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   cnst _ = Nothing
   cnstM (Value _) = (\x -> trace "FIELD " x) $ Just PS.field
   cnstM _ = Nothing
-  cnstS = lift $ PS.field
+  cnstS = (\x -> trace "FIELD " x) $ lift $ PS.field
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
@@ -112,7 +112,7 @@ instance GFields f => GFields (D1 i f) where
   gCnstM obj = fmap M1 <$> gCnstM obj
   gCnstS = do
     cnst <- lift $ PS.field
-    put cnst
+    put $ (\x -> trace ("CNST " ++ cnst) x) $ cnst
     fmap M1 <$> gCnstS
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
@@ -130,7 +130,7 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
   gCnstM _ = Nothing
   gCnstS = do
     cnst <- get
-    if (conName (undefined :: C1 c f ())) == cnst
+    if (\x -> trace ("C1 " ++ (conName (undefined :: C1 c f ())) ++ " " ++ cnst ++ " " ++ show ((conName (undefined :: C1 c f ())) == cnst)) x ) $ (conName (undefined :: C1 c f ())) == cnst
       then fmap M1 <$> gCnstS
       else return Nothing
 
@@ -146,7 +146,7 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnstM obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = (\x -> trace ("SEL: " ++ (selName (undefined :: S1 c f ()))) x) $ fmap M1 <$> gCnstM v
   gCnstM _ = Nothing
-  gCnstS = fmap M1 <$> gCnstS
+  gCnstS = fmap M1 <$> ((\x -> trace "SEL" x ) $ gCnstS)
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
@@ -171,8 +171,6 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
     b <- gCnstS
     return $ fmap (:*:) a <*> b
 
-deriving instance MonadPlus PS.RowParser
-
 instance (GFields f, GFields g) => GFields (f :+: g) where
   gFields (Just (L1 x)) = gFields (Just x)
   gFields (Just (R1 x)) = gFields (Just x)
@@ -186,8 +184,8 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap R1 <$> gCnstM obj = Just x
   gCnstM _ = Nothing
   gCnstS = do
-    x <- fmap L1 <$> gCnstS
-    y <- fmap R1 <$> gCnstS
+    x <- fmap L1 <$> ((\x -> trace "L1" x ) $ gCnstS)
+    y <- fmap R1 <$> ((\x -> trace "R1" x ) $ gCnstS)
     return $ x <|> y
 
 instance GFields U1 where
