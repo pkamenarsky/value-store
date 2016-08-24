@@ -495,7 +495,8 @@ test = do
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
 
-  rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
+  rs <- query conn simplejoin (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
   traceIO $ show rs
@@ -511,4 +512,11 @@ test = do
 
   return ()
 
+env :: IO (PS.Connection, Person, Address)
+env = do
+  conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
+  let p = Robot True
+      a = Address "doom" p
+
+  return (conn, p, a)
 --------------------------------------------------------------------------------
