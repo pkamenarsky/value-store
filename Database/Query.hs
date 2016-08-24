@@ -113,7 +113,7 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c
   Cnst  :: Show a => a -> Expr r a
-  Fld   :: String -> (r -> a) -> Expr r a
+  Fld   :: String -> (r -> Maybe a) -> Expr r a
   Fst   :: Show a => Expr r a -> Expr (r :. s) a
   Snd   :: Show a => Expr s a -> Expr (r :. s) a
   And   :: Expr r Bool -> Expr r Bool -> Expr r Bool
@@ -210,7 +210,9 @@ deriving instance Traversable (Query' a)
 labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
-substFst :: Expr (l :. r) a -> l -> Expr r a
+substFst :: Expr (l :. r) a -> l -> Maybe (Expr r a)
+substFst = undefined
+{-
 substFst (Cnst a) sub = Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
 substFst (_ :+: _ ) sub = error "Invalid field access"
@@ -220,8 +222,11 @@ substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
 substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
 substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
 substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
+-}
 
-substSnd :: Expr (l :. r) a -> r -> Expr l a
+substSnd :: Expr (l :. r) a -> r -> Maybe (Expr l a)
+substSnd = undefined
+{-
 substSnd (Cnst a) sub = Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (_ :+: _ ) sub = error "Invalid field access"
@@ -231,8 +236,11 @@ substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
 substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
 substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
 substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
+-}
 
-foldExpr :: Expr r a -> (r -> a)
+foldExpr :: Expr r a -> (r -> Maybe a)
+foldExpr = undefined
+{-
 foldExpr (Cnst a) = const a
 foldExpr (Fld _ get) = get
 foldExpr (f :+: g) = foldExpr g . foldExpr f
@@ -242,6 +250,7 @@ foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
 foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
 foldExpr (Eqs a b) = \r -> foldExpr a r == foldExpr b r
 foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
+-}
 
 --------------------------------------------------------------------------------
 
@@ -265,19 +274,25 @@ data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: Strin
 instance Fields Image
 
 nameE :: Expr (Person) String
-nameE = Fld "name" _name
+nameE = Fld "name" $ \p -> case p of
+  p@Person{} -> Just $ _name p
+  _ -> Nothing
 
 ageE :: Expr (Person) Int
-ageE = Fld "age" _age
+ageE = Fld "age" $ \p -> case p of
+  p@Person{} -> Just $ _age p
+  _ -> Nothing
 
 aiE :: Expr (Person) Bool
-aiE = Fld "ai" _ai
+aiE = Fld "ai" $ \p -> case p of
+  p@Person{} -> Just $ _ai p
+  _ -> Nothing
 
 personE :: Expr (Address) Person
-personE = Fld "person" _person
+personE = Fld "person" (Just . _person)
 
 streetE :: Expr (Address) String
-streetE = Fld "street" _street
+streetE = Fld "street" (Just . _street)
 
 --------------------------------------------------------------------------------
 
@@ -362,7 +377,7 @@ passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
   | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
   (qc, so, as) <- passesQuery conn row q
-  return (Filter l f qc, so, [ v | v@(action, a) <- as, foldExpr f (unK a) ])
+  return (Filter l f qc, so, [ v | v@(action, a) <- as, Just True <- [foldExpr f (unK a)] ])
 passesQuery conn row (Sort l cache expr offset limit q) = do
   (qc, _, as)   <- passesQuery conn row q
   (cache', as') <- go expr cache as
@@ -389,7 +404,9 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
       rl' <- forM rl $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr :: IO [K u b]
+            ls <- case substFst f (unK r) of
+              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) qr :: IO [K u b]
+              _          -> return []
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
             return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
           Delete -> do
@@ -399,7 +416,9 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
       rr' <- forM rr $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql :: IO [K t a]
+            ls <- case substSnd f (unK r) of
+              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) ql :: IO [K t a]
+              _          -> return []
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
             return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
           Delete -> do
