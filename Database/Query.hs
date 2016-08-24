@@ -7,6 +7,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
@@ -266,17 +267,17 @@ instance Fields Image
 
 nameE :: Expr (Person) String
 nameE = Fld "name" $ \p -> case p of
-  p@Person{} -> Just $ _name p
+  p@Person{..} -> Just _name
   _ -> Nothing
 
 ageE :: Expr (Person) Int
 ageE = Fld "age" $ \p -> case p of
-  p@Person{} -> Just $ _age p
+  p@Person{..} -> Just _age
   _ -> Nothing
 
 aiE :: Expr (Person) Bool
 aiE = Fld "ai" $ \p -> case p of
-  p@Person{} -> Just $ _ai p
+  p@Robot{..} -> Just _ai
   _ -> Nothing
 
 personE :: Expr (Address) Person
