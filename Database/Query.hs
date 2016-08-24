@@ -114,8 +114,8 @@ data Expr t r a where
   (:+:) :: Expr t a b -> Expr t b c -> Expr t a c
   Cnst  :: Show a => a -> Expr t r a
   Fld   :: String -> (r -> a) -> Expr t r a
-  Fst   :: Show a => Expr t r a -> Expr t (r :. s) a
-  Snd   :: Show a => Expr t s a -> Expr t (r :. s) a
+  Fst   :: Show a => Expr t r a -> Expr (t :. u) (r :. s) a
+  Snd   :: Show a => Expr t s a -> Expr (u :. t) (r :. s) a
   And   :: Expr t r Bool -> Expr t r Bool -> Expr t r Bool
   Grt   :: Ord a => Expr t r a -> Expr t r a -> Expr t r Bool
   Eqs   :: Eq  a => Expr t r a -> Expr t r a -> Expr t r Bool
@@ -172,17 +172,17 @@ type Key = String
 
 data Query' st a l where
   All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' st (K Key a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr t a Bool -> Query' st (K t a) l -> Query' st (K t a) l
+  Filter :: PS.FromRow (K t a) => l -> Expr st a Bool -> Query' st (K t a) l -> Query' st (K t a) l
   Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr st a b -> Maybe Int -> Maybe Int -> Query' st (K t a) l -> Query' st (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (st :. su) (a :. b) Bool -> Query' st (K t a) l -> Query' su (K u b) l -> Query' (st :. su) (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' t a l)
 
-type Query a = Query' a ()
-type LQuery a = Query' a String
-type CQuery a = Query' a String
+type Query st a = Query' st a ()
+type LQuery st a = Query' st a String
+type CQuery st a = Query' st a String
 
-all :: forall a t st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
+all :: forall a st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
 all = All () (Row table kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
@@ -386,7 +386,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
       as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
       (cache', as'') <- go expr (deleteBy (cmpKP `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
       return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
-passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
+passesQuery conn row (Join l f ql qr) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
 
@@ -395,7 +395,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
       rl' <- forM rl $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr :: IO [K u b]
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substFst f (unK r)) $ fmap (const ()) qr
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
             return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
           Delete -> do
@@ -405,7 +405,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
       rr' <- forM rr $ \(action, r) -> do
         case action of
           Insert -> do
-            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql :: IO [K t a]
+            ls <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f (unK r)) $ fmap (const ()) ql
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
             return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
           Delete -> do
