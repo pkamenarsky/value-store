@@ -337,7 +337,8 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 allPersons :: Query (K Key Person)
 allPersons = all
 
-simplejoin = sort (Fst ageE) Nothing (Just 100) $ join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+simplejoinai = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst aiE `Eqs` Snd aiE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
 -- simplejoinsbstsql = fst $ foldQuerySql $ labelQuery $ filter (substFst (Fst ageE `Grt` Snd ageE) (Person "name" 666)) allPersons
@@ -506,11 +507,12 @@ test = do
   -- traceIO $ show rs
 
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
-  rs <- query conn simplejoin (traceIO . show)
+  rs <- query conn simplejoinai (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
   traceIO $ show rs
 
+  {-
   let rec  = (Person "john" 222)
       recr = Robot True
 
@@ -519,6 +521,7 @@ test = do
   let rec2 = (Address "doom" recr)
 
   insertRow conn "person" "key2" rec2
+  -}
 
   return ()
 
