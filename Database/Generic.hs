@@ -80,9 +80,9 @@ class Fields a where
   default cnstM :: (Generic a, GFields (Rep a)) => Object PS.Action -> Maybe (PS.RowParser a)
   cnstM obj = fmap to <$> gCnstM obj
 
-  cnstS :: StateT String PS.RowParser a
-  default cnstS :: (Generic a, GFields (Rep a)) => StateT String PS.RowParser a
-  cnstS = to <$> gCnstS
+  cnstS :: StateT String PS.RowParser (Maybe a)
+  default cnstS :: (Generic a, GFields (Rep a)) => StateT String PS.RowParser (Maybe a)
+  cnstS = fmap to <$> gCnstS
 
 instance PS.ToField Char where
   toField x = PS.toField [x]
@@ -103,7 +103,7 @@ class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
   gCnst :: Object (PS.Field, Maybe B.ByteString) -> Maybe (PS.Conversion (f a))
   gCnstM :: Object PS.Action -> Maybe (PS.RowParser (f a))
-  gCnstS :: StateT String PS.RowParser (f a)
+  gCnstS :: StateT String PS.RowParser (Maybe (f a))
 
 instance GFields f => GFields (D1 i f) where
   gFields (Just (M1 x)) = gFields (Just x)
@@ -113,7 +113,7 @@ instance GFields f => GFields (D1 i f) where
   gCnstS = do
     cnst <- lift $ PS.field
     put cnst
-    M1 <$> gCnstS
+    fmap M1 <$> gCnstS
 
 instance (GFields f, Constructor c) => GFields (C1 c f) where
   gFields (Just (M1 x)) = Object (("cnst", Value (PS.Escape $ BC.pack $ conName (undefined :: C1 c f ()))):getkvs (gFields (Just x)))
@@ -131,8 +131,8 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
   gCnstS = do
     cnst <- get
     if (conName (undefined :: C1 c f ())) == cnst
-      then M1 <$> gCnstS
-      else fail "Not this constructor"
+      then fmap M1 <$> gCnstS
+      else return Nothing
 
 instance (Selector c, GFields f) => GFields (S1 c f) where
   gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
@@ -146,14 +146,14 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnstM obj@(Object kvs)
     | Just v <- lookup (selName (undefined :: S1 c f ())) kvs = (\x -> trace ("SEL: " ++ (selName (undefined :: S1 c f ()))) x) $ fmap M1 <$> gCnstM v
   gCnstM _ = Nothing
-  gCnstS = M1 <$> gCnstS
+  gCnstS = fmap M1 <$> gCnstS
 
 instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
   gCnst obj = fmap K1 <$> cnst obj
   gCnstM obj = fmap K1 <$> cnstM obj
-  gCnstS = K1 <$> cnstS
+  gCnstS = fmap K1 <$> cnstS
 
 instance (GFields f, GFields g) => GFields (f :*: g) where
   gFields (Just (f :*: g)) = Object (getkvs (gFields (Just f)) ++ getkvs (gFields (Just g)))
@@ -169,7 +169,7 @@ instance (GFields f, GFields g) => GFields (f :*: g) where
   gCnstS = do
     a <- gCnstS
     b <- gCnstS
-    return $ a :*: b
+    return $ fmap (:*:) a <*> b
 
 deriving instance MonadPlus PS.RowParser
 
@@ -185,10 +185,20 @@ instance (GFields f, GFields g) => GFields (f :+: g) where
     | Just x <- fmap L1 <$> gCnstM obj = Just x
     | Just x <- fmap R1 <$> gCnstM obj = Just x
   gCnstM _ = Nothing
-  gCnstS = L1 <$> gCnstS <|> R1 <$> gCnstS
+  gCnstS = do
+    x <- fmap L1 <$> gCnstS
+    y <- fmap R1 <$> gCnstS
+    return $ x <|> y
 
 instance GFields U1 where
   gFields _ = Empty
   gCnst _ = Nothing
   gCnstM _ = Nothing
-  gCnstS = fail "Unit"
+  gCnstS = return Nothing
+
+nfields result = unsafeDupablePerformIO (PQ.nfields result)
+
+finishParsing :: PS.RowParser ()
+finishParsing = PS.RP $ do
+  PS.Row{..} <- ask
+  lift $ put (nfields rowresult)
