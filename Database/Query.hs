@@ -14,7 +14,7 @@
 
 module Database.Query where
 
-import Control.Monad (forM, void, replicateM_)
+import Control.Monad (forM, void, replicateM_, (>=>), (<=<))
 import Control.Monad.Trans.State.Strict hiding (join)
 import Control.Concurrent
 
@@ -239,18 +239,15 @@ substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
 -}
 
 foldExpr :: Expr r a -> (r -> Maybe a)
-foldExpr = undefined
-{-
-foldExpr (Cnst a) = const a
+foldExpr (Cnst a) = const $ Just a
 foldExpr (Fld _ get) = get
-foldExpr (f :+: g) = foldExpr g . foldExpr f
+foldExpr (f :+: g) = foldExpr g <=< foldExpr f
 foldExpr (Fst f) = \(r :. _) -> foldExpr f r
 foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
-foldExpr (And a b) = \r -> foldExpr a r && foldExpr b r
-foldExpr (Grt a b) = \r -> foldExpr a r > foldExpr b r
-foldExpr (Eqs a b) = \r -> foldExpr a r == foldExpr b r
-foldExpr (Plus a b) = \r -> foldExpr a r + foldExpr b r
--}
+foldExpr (And a b) = \r -> (&&) <$> foldExpr a r <*> foldExpr b r
+foldExpr (Grt a b) = \r -> (>)  <$> foldExpr a r <*> foldExpr b r
+foldExpr (Eqs a b) = \r -> (==) <$> foldExpr a r <*> foldExpr b r
+foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 --------------------------------------------------------------------------------
 
