@@ -18,6 +18,7 @@ module Database.Query where
 import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict hiding (join)
 import Control.Concurrent
+import Control.Concurrent.MVar
 
 import qualified Data.Aeson as A
 
@@ -485,10 +486,10 @@ query conn q cb = do
       nt <- PS.getNotification conn
       case A.decode (BL.fromStrict $ PS.notificationData nt) of
         Just (action, a) -> do
-          traceIO $ show action
+          -- traceIO $ show action
           (q', so, as) <- passesQuery conn (DBValue action (B.unpack $ PS.notificationChannel nt) a) q
-          traceIO "ACTIONS: "
-          traceIO $ show as
+          -- traceIO "ACTIONS: "
+          -- traceIO $ show as
           let rs' = reconcile so as rs
           cb rs'
           go q' rs'
@@ -544,15 +545,26 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  forM_ [0..100] $ \limit -> do
+  forM_ [0..10] $ \limit -> do
     PS.execute_ conn "delete from person"
+
+    lock <- newMVar ()
 
     let q  = sort ageE (Just 0) (Just limit) allPersons
         cb rs = do
+          takeMVar lock
           rs' <- query_ conn q
-          when (rs /= rs') $
-            error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs
+          putMVar lock ()
+          if (rs /= rs')
+            then error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs ++ ", query: " ++ show q
+            else traceIO $ "Good, limit: " ++ show limit
     (_, tid) <- query conn q cb
-    forM_ [0..500] $ \k -> insertRow conn "person" ("key" ++ show k) (Person "john" k)
+
+    forM_ [0..50] $ \k -> do
+      takeMVar lock
+      insertRow conn "person" ("key" ++ show k) (Person "john" k)
+      putMVar lock ()
+
+    killThread tid
 
 --------------------------------------------------------------------------------
