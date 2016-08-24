@@ -186,8 +186,8 @@ type CQuery st a = Query' st a String
 
 class CnstUnif a b
 
-instance CnstUnif t t
-instance CnstUnif (t :+ u) t
+instance {-# OVERLAPPABLE #-} CnstUnif t t
+-- instance CnstUnif t (t :+ u)
 
 all :: forall a st. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query st (K Key a)
 all = All () (Row table kvs)
@@ -195,7 +195,7 @@ all = All () (Row table kvs)
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
 
-filter :: (PS.FromRow (K t a), CnstUnif st st2) => Expr st a Bool -> Query st (K t a) -> Query st2 (K t a)
+filter :: (PS.FromRow (K t a), CnstUnif st st2) => Expr st a Bool -> Query st2 (K t a) -> Query st (K t a)
 filter = undefined
 -- filter = Filter ()
 
@@ -332,6 +332,8 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
+{-
+ql :: Query _ (K Key Person)
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
 -- qr :: Query (K Key Person)
 qr = all
@@ -344,6 +346,7 @@ q1sql = fst $ foldQuerySql (labelQuery q1)
 q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst (Snd ageE)) `And` (Fst (Fst ageE) `Eqs` Cnst 222)) (join (Fst ageE `Eqs` Snd ageE) allPersons allPersons) (join (Fst (Fst ageE) `Eqs` Snd ageE) (join (Fst ageE `Eqs` Snd ageE) allPersons allPersons) allPersons)
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
+-}
 
 allPersons :: Query st (K Key Person)
 allPersons = all
@@ -351,6 +354,7 @@ allPersons = all
 allAddresses :: Query st (K Key Address)
 allAddresses = all
 
+{-
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
 simplejoinsql = fst $ foldQuerySql (labelQuery simplejoin)
 
@@ -361,6 +365,7 @@ simplesql = fst $ foldQuerySql (labelQuery simple)
 
 -- valid :: _
 valid = join (Fst killsE `Eqs` Snd ageE) (filter (killsE `Eqs` Cnst 5) allPersons) (filter (ageE `Eqs` Cnst 222) $ allPersons)
+-}
 
 valid2 = filter (personE :+: nameE `Eqs` Cnst "phil") $ filter (streetE `Eqs` Cnst "asd") allAddresses
 
@@ -521,10 +526,10 @@ test = do
   -- traceIO $ show rs
 
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
-  rs <- query conn simplejoin (traceIO . ("CB: "++ ) . show)
+  -- rs <- query conn simplejoin (traceIO . ("CB: "++ ) . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
-  traceIO $ show rs
+  -- traceIO $ show rs
 
   {-
   let rec  = (Person "john" 222)
