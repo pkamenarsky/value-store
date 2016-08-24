@@ -15,7 +15,7 @@
 
 module Database.Query where
 
-import Control.Monad (forM, void, replicateM_, (>=>), (<=<))
+import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict hiding (join)
 import Control.Concurrent
 
@@ -79,8 +79,9 @@ data KP t where
 -- deriving instance Generic (KP t)
 deriving instance Typeable (KP t)
 deriving instance Show (KP t)
+deriving instance Eq (KP t)
 
-data K t a = K { key :: KP t, unK :: a } deriving (Generic, Typeable, Show)
+data K t a = K { key :: KP t, unK :: a } deriving (Eq, Generic, Typeable, Show)
 
 cmpKP :: KP t -> KP t -> Bool
 KP k   `cmpKP` KP k'    = k == k'
@@ -248,7 +249,7 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
-            | Undead { _kills :: Int } deriving (Generic, Typeable, Show)
+            | Undead { _kills :: Int } deriving (Eq, Generic, Typeable, Show)
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
@@ -464,16 +465,21 @@ insertRow conn col k a = do
 
 deriving instance Show PS.Notification
 
-query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO [K t a]
+query_ :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> IO [K t a]
+query_ conn q = do
+  cq <- fillCaches conn (labelQuery q)
+  PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
+
+query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO ([K t a], ThreadId)
 query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
 
   PS.execute_ conn "listen person"
 
-  forkIO $ go cq rs
+  tid <- forkIO $ go cq rs
+  return (rs, tid)
 
-  return rs
   where
     go q rs = do
       nt <- PS.getNotification conn
@@ -533,4 +539,20 @@ env = do
       a = Address "doom" p
 
   return (conn, p, a)
+
+testSort :: IO ()
+testSort = do
+  conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
+
+  forM_ [0..100] $ \limit -> do
+    PS.execute_ conn "delete from person"
+
+    let q  = sort ageE (Just 0) (Just limit) allPersons
+        cb rs = do
+          rs' <- query_ conn q
+          when (rs /= rs') $
+            error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs
+    (_, tid) <- query conn q cb
+    forM_ [0..500] $ \k -> insertRow conn "person" ("key" ++ show k) (Person "john" k)
+
 --------------------------------------------------------------------------------
