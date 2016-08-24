@@ -552,18 +552,16 @@ testSort = do
 
     let q  = sort ageE (Just 0) (Just limit) allPersons
         cb rs = do
-          takeMVar lock
           rs' <- query_ conn q
           putMVar lock ()
           if (rs /= rs')
             then error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs ++ ", query: " ++ show q
-            else traceIO $ "Good, limit: " ++ show limit
+            else traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
     (_, tid) <- query conn q cb
 
-    forM_ [0..50] $ \k -> do
-      takeMVar lock
+    forM [0..50] $ \k -> do
       insertRow conn "person" ("key" ++ show k) (Person "john" k)
-      putMVar lock ()
+      takeMVar lock
 
     killThread tid
 
