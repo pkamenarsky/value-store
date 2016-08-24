@@ -211,32 +211,26 @@ labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 substFst :: Expr (l :. r) a -> l -> Maybe (Expr r a)
-substFst = undefined
-{-
-substFst (Cnst a) sub = Cnst a
+substFst (Cnst a) sub = Just $ Cnst a
 substFst (Fld _ _) sub = error "Invalid field access"
 substFst (_ :+: _ ) sub = error "Invalid field access"
-substFst (Fst f) sub = Cnst (foldExpr f sub)
-substFst (Snd f) sub = f
-substFst (And ql qr) sub = And (substFst ql sub) (substFst qr sub)
-substFst (Grt ql qr) sub = Grt (substFst ql sub) (substFst qr sub)
-substFst (Eqs ql qr) sub = Eqs (substFst ql sub) (substFst qr sub)
-substFst (Plus ql qr) sub = Plus (substFst ql sub) (substFst qr sub)
--}
+substFst (Fst f) sub = Cnst <$> foldExpr f sub
+substFst (Snd f) sub = Just f
+substFst (And ql qr) sub  = And  <$> substFst ql sub <*> substFst qr sub
+substFst (Grt ql qr) sub  = Grt  <$> substFst ql sub <*> substFst qr sub
+substFst (Eqs ql qr) sub  = Eqs  <$> substFst ql sub <*> substFst qr sub
+substFst (Plus ql qr) sub = Plus <$> substFst ql sub <*> substFst qr sub
 
 substSnd :: Expr (l :. r) a -> r -> Maybe (Expr l a)
-substSnd = undefined
-{-
-substSnd (Cnst a) sub = Cnst a
+substSnd (Cnst a) sub = Just $ Cnst a
 substSnd (Fld _ _) sub = error "Invalid field access"
 substSnd (_ :+: _ ) sub = error "Invalid field access"
-substSnd (Fst f) sub = f
-substSnd (Snd f) sub = Cnst (foldExpr f sub)
-substSnd (And ql qr) sub = And (substSnd ql sub) (substSnd qr sub)
-substSnd (Grt ql qr) sub = Grt (substSnd ql sub) (substSnd qr sub)
-substSnd (Eqs ql qr) sub = Eqs (substSnd ql sub) (substSnd qr sub)
-substSnd (Plus ql qr) sub = Plus (substSnd ql sub) (substSnd qr sub)
--}
+substSnd (Fst f) sub = Just f
+substSnd (Snd f) sub = Cnst <$> foldExpr f sub
+substSnd (And ql qr) sub  = And  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Grt ql qr) sub  = Grt  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Eqs ql qr) sub  = Eqs  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Plus ql qr) sub = Plus <$> (substSnd ql sub) <*> (substSnd qr sub)
 
 foldExpr :: Expr r a -> (r -> Maybe a)
 foldExpr (Cnst a) = const $ Just a
