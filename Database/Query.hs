@@ -25,7 +25,7 @@ import qualified Data.Aeson as A
 import Data.Char
 import Data.Function              (on)
 import Data.IORef
-import Data.List                  (intersperse, deleteBy, insertBy)
+import Data.List                  (intersperse, deleteBy, insertBy, find)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -353,7 +353,7 @@ data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
 
-data Action = Insert | Delete deriving (Show, Generic)
+data Action = Insert | Delete deriving (Eq, Show, Generic)
 
 instance A.FromJSON Action
 instance A.ToJSON Action
@@ -369,6 +369,8 @@ passesQuery :: PS.Connection
             -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
   | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) a)])
+  -- FIXME: parsing
+  | r == r', action == Delete, A.Success k <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) undefined)])
   | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
   (qc, so, as) <- passesQuery conn row q
@@ -385,11 +387,14 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
           (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')
       | otherwise = go expr cache as
-    go expr cache ((Delete, a):as) = do
-      -- TODO: test sort
-      as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ fromMaybe 0 offset + length cache - 1) limit q)
-      (cache', as'') <- go expr (deleteBy (cmpKP `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
-      return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
+    go expr cache ((Delete, a):as)
+      | Just _ <- find ((== key a) . key) cache = do
+          as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + length cache - 1) limit q)
+          (cache', as'') <- go expr (deleteBy (cmpKP `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+          return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
+      | otherwise = do
+          (cache', as'') <- go expr cache as
+          return (cache', (Delete, a):as'')
 passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
@@ -573,9 +578,14 @@ testSort = do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
+    -- FIXME: insert, delete semantics need to mirror Map
     forM [0..100] $ \k -> do
+      insertRow conn ("key" ++ show k) (Person "john" k)
+      putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
       putMVar lock ()
+      -- deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
+      -- putMVar lock ()
 
     killThread tid
 
