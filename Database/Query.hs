@@ -460,7 +460,7 @@ fillCaches conn (Join l a ql qr) = do
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
 
-insertRow :: forall a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+insertRow :: forall a. (Show a, Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
       table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
@@ -471,6 +471,8 @@ insertRow conn k a = do
             <> " on conflict (key) do update set "
             <> mconcat (intersperse ", " [ k ++ " = ? " | k <- tail kvs ])
 
+  traceIO $ "I, key: " ++ show k ++ ", value: " ++  show a
+
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a :. a)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Insert, (k, a)))
@@ -479,6 +481,8 @@ deleteRow :: forall a. (Typeable a) => PS.Connection -> String -> Proxy a -> IO 
 deleteRow conn k _ = do
   let table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "delete from " <> table <> " where key = ? "
+
+  traceIO $ "D, key: " ++ show k
 
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
@@ -570,13 +574,22 @@ testSort = do
 
     lock <- newMVar ()
 
-    let q  = -- join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
-             join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+    let q  = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
+             -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn q
           takeMVar lock
           if (S.fromList rs /= S.fromList rs')
-            then error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs ++ ", query: " ++ show q
+            then do
+              traceIO "Different results, expected: "
+              traceIO $ show rs'
+              traceIO "Received: "
+              traceIO $ show rs
+              traceIO "Received: "
+              traceIO $ show (S.fromList rs' `S.difference` S.fromList rs)
+              traceIO "Query: "
+              traceIO $ show q
+              error "Aborting"
             else traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
     (_, tid) <- query conn q cb
 
