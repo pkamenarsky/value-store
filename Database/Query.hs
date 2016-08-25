@@ -465,10 +465,12 @@ insertRow conn k a = do
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
-            <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ") on conflict update"
+            <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
+            <> " on conflict (key) do update set "
+            <> mconcat (intersperse ", " [ k ++ " = ? " | k <- tail kvs ])
 
   -- traceIO stmt
-  void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a)
+  void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a :. a)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Insert, (k, a)))
 
 deleteRow :: forall a. (Typeable a) => PS.Connection -> String -> Proxy a -> IO ()
