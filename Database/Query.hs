@@ -29,6 +29,7 @@ import Data.List                  (intersperse, deleteBy, insertBy, find)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
+import qualified Data.Set                   as S
 import Data.Typeable
 
 import qualified Data.ByteString.Builder as B
@@ -84,8 +85,9 @@ data KP t where
 deriving instance Typeable (KP t)
 deriving instance Show (KP t)
 deriving instance Eq (KP t)
+deriving instance Ord (KP t)
 
-data K t a = K { key :: KP t, unK :: a } deriving (Eq, Generic, Typeable, Show)
+data K t a = K { key :: KP t, unK :: a } deriving (Eq, Ord, Generic, Typeable, Show)
 
 cmpKP :: KP t -> KP t -> Bool
 KP k   `cmpKP` KP k'    = k == k'
@@ -253,7 +255,7 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
-            | Undead { _kills :: Int } deriving (Eq, Generic, Typeable, Show)
+            | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
@@ -573,7 +575,7 @@ testSort = do
         cb rs = do
           rs' <- query_ conn q
           takeMVar lock
-          if (rs /= rs')
+          if (S.fromList rs /= S.fromList rs')
             then error $ "Different results, expected: " ++ show rs' ++ ", received: " ++ show rs ++ ", query: " ++ show q
             else traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
     (_, tid) <- query conn q cb
