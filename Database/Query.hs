@@ -61,6 +61,7 @@ insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
 insertBy' _   x [] i = (i, [x])
 insertBy' cmp x ys@(y:ys') i
  = case cmp x y of
+     EQ -> (i, x : ys')
      GT -> let (i', ys'') = insertBy' cmp x ys' (i + 1) in (i', y : ys'')
      _  -> (i, x : ys)
 
@@ -464,7 +465,7 @@ insertRow conn k a = do
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
-            <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ")"
+            <> " values (" <> mconcat (intersperse ", " [ "?" | _ <- kvs ]) <> ") on conflict update"
 
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a)
