@@ -25,7 +25,7 @@ import qualified Data.Aeson as A
 import Data.Char
 import Data.Function              (on)
 import Data.IORef
-import Data.List                  (intersperse, deleteBy, insertBy, find)
+import Data.List                  (intersperse, find)
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -58,6 +58,12 @@ import Database.Generic
 
 import Debug.Trace
 
+deleteAllBy :: (a -> Bool) -> [a] -> [a]
+deleteAllBy f [] = []
+deleteAllBy f (x:xs)
+  | f x = deleteAllBy f xs
+  | otherwise = x:deleteAllBy f xs
+
 insertBy' :: (a -> a -> Ordering) -> Int -> a -> [a] -> (Int, [a])
 insertBy' _   i x [] = (i, [x])
 insertBy' cmp i x ys@(y:ys')
@@ -66,7 +72,7 @@ insertBy' cmp i x ys@(y:ys')
      _  -> (i, x : ys)
 
 insertByKey :: Eq b => (a -> a -> Ordering) -> (a -> b) -> a -> [a] -> (Int, [a])
-insertByKey f k x = insertBy' f 0 x . deleteBy ((==) `on` k) x
+insertByKey f k x = insertBy' f 0 x . deleteAllBy ((k x ==) . k)
 
 --------------------------------------------------------------------------------
 
@@ -399,7 +405,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
     go expr cache ((Delete, a):as)
       | Just _ <- find ((== key a) . key) cache = do
           as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + length cache - 1) limit q)
-          (cache', as'') <- go expr (deleteBy (cmpKP `on` key) a cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+          (cache', as'') <- go expr (deleteAllBy (cmpKP (key a) . key) cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
           return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
       | otherwise = do
           (cache', as'') <- go expr cache as
@@ -437,7 +443,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = snd $ insertByKey (\_ _ -> LT) key a as
 reconcile' (SortBy expr) (Insert, a) as = snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
-reconcile' _ (Delete, a) as             = deleteBy (cmpKP `on` key) a as
+reconcile' _ (Delete, a) as             = deleteAllBy (cmpKP (key a) . key) as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
@@ -569,7 +575,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  forM_ [0..20] $ \limit -> do
+  forM_ [0..1] $ \limit -> do
     PS.execute_ conn "delete from person"
 
     lock <- newMVar ()
@@ -594,11 +600,11 @@ testSort = do
               takeMVar lock
     (_, tid) <- query conn q cb
 
-    forM [0..40] $ \k -> do
+    forM [0..7] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
-    forM [0..40] $ \k -> do
+    forM [0..7] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
