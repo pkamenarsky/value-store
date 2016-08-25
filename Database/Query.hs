@@ -569,35 +569,36 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  forM_ [0..50] $ \limit -> do
+  forM_ [0..20] $ \limit -> do
     PS.execute_ conn "delete from person"
 
     lock <- newMVar ()
 
-    let q  = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
+    let q  = join (Fst ageE `Grt` Snd ageE) allPersons $ {- sort ageE (Just 0) (Just limit) $ -} filter ((ageE `Grt` Cnst 5)) allPersons
              -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn q
-          takeMVar lock
           if (S.fromList rs /= S.fromList rs')
             then do
               traceIO "Different results, expected: "
               traceIO $ show rs'
               traceIO "Received: "
               traceIO $ show rs
-              traceIO "Received: "
-              traceIO $ show (S.fromList rs' `S.difference` S.fromList rs)
+              traceIO "Difference: "
+              traceIO $ show ((S.fromList rs' `S.difference` S.fromList rs) `S.union` (S.fromList rs `S.difference` S.fromList rs'))
               traceIO "Query: "
               traceIO $ show q
               error "Aborting"
-            else traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
+            else do
+              traceIO $ "Good, limit: " ++ show limit ++ ", size: " ++ show (length rs)
+              takeMVar lock
     (_, tid) <- query conn q cb
 
-    forM [0..100] $ \k -> do
+    forM [0..40] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
-    forM [0..100] $ \k -> do
+    forM [0..40] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
