@@ -377,7 +377,11 @@ passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
   | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
   (qc, so, as) <- passesQuery conn row q
-  return (Filter l f qc, so, [ v | v@(action, a) <- as, Just True <- [foldExpr f (unK a)] ])
+  return (Filter l f qc, so, [ v | v@(action, a) <- as
+                                 , case action of
+                                    Insert -> foldExpr f (unK a) == Just True
+                                    Delete -> True
+                             ])
 passesQuery conn row (Sort l cache expr offset limit q) = do
   (qc, _, as)   <- passesQuery conn row q
   (cache', as') <- go expr cache as
@@ -453,12 +457,6 @@ fillCaches conn (Join l a ql qr) = do
   ql' <- fillCaches conn ql
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
-
-listen :: (String -> A.Value -> IO ()) -> IO ()
-listen = undefined
-
-mkRowParser :: Fields a => PS.RowParser a
-mkRowParser = undefined
 
 insertRow :: forall a. (Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
@@ -570,7 +568,8 @@ testSort = do
 
     lock <- newMVar ()
 
-    let q  = sort ageE (Just 0) (Just limit) allPersons
+    let q  = -- join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
+             join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn q
           takeMVar lock
@@ -583,7 +582,6 @@ testSort = do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
-    -- FIXME: insert, delete semantics need to mirror Map
     forM [0..100] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
