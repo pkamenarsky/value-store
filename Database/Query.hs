@@ -414,33 +414,31 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
 
-  if not (null rl)
-    then do
-      rl' <- forM rl $ \(action, r) -> do
-        case action of
-          Insert -> do
-            ls <- case substFst f (unK r) of
-              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) qr :: IO [K u b]
-              _          -> return []
-            -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-            return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
-          Delete -> do
-            traceIO $ show $ SP (key r) WP
-            return [ (Delete, K (SP (key r) WP) (error "Deleted element")) ]
-      return (Join l f qcl qcr, Unsorted, concat rl')
-    else do
-      rr' <- forM rr $ \(action, r) -> do
-        case action of
-          Insert -> do
-            ls <- case substSnd f (unK r) of
-              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) ql :: IO [K t a]
-              _          -> return []
-            -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-            return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
-          Delete -> do
-            traceIO $ show $ SP WP (key r)
-            return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
-      return (Join l f qcl qcr, Unsorted, concat rr')
+  rl' <- forM rl $ \(action, r) -> do
+    case action of
+      Insert -> do
+        ls <- case substFst f (unK r) of
+          Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) qr :: IO [K u b]
+          _          -> return []
+        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
+        return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
+      Delete -> do
+        traceIO $ show $ SP (key r) WP
+        return [ (Delete, K (SP (key r) WP) (error "Deleted element")) ]
+
+  rr' <- forM rr $ \(action, r) -> do
+    case action of
+      Insert -> do
+        ls <- case substSnd f (unK r) of
+          Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) ql :: IO [K t a]
+          _          -> return []
+        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
+        return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
+      Delete -> do
+        traceIO $ show $ SP WP (key r)
+        return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
+
+  return (Join l f qcl qcr, Unsorted, concat rl' ++ concat rr')
 
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = snd $ insertByKey (\_ _ -> LT) key a as
@@ -602,17 +600,19 @@ testSort = do
               takeMVar lock
     (_, tid) <- query conn q cb
 
-    forM [0..7] $ \k -> do
+    forM [0..50] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
-    forM [0..7] $ \k -> do
+    forM [0..50] $ \k -> do
+      insertRow conn ("key" ++ show k) (Person "john" k)
+      putMVar lock ()
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
       putMVar lock ()
-      -- deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
-      -- putMVar lock ()
+      deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
+      putMVar lock ()
 
     killThread tid
 
