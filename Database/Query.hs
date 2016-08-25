@@ -575,12 +575,13 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  forM_ [0..1] $ \limit -> do
+  forM_ [0..10] $ \limit -> do
     PS.execute_ conn "delete from person"
 
     lock <- newMVar ()
 
-    let q  = join (Fst ageE `Grt` Snd ageE) allPersons $ {- sort ageE (Just 0) (Just limit) $ -} filter ((ageE `Grt` Cnst 5)) allPersons
+    let q  -- = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
+           = join (Fst ageE `Eqs` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
              -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn q
@@ -600,11 +601,11 @@ testSort = do
               takeMVar lock
     (_, tid) <- query conn q cb
 
-    forM [0..50] $ \k -> do
+    forM [0..20] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
 
-    forM [0..50] $ \k -> do
+    forM [0..20] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
       insertRow conn ("key" ++ show k) (Person "john" k)
