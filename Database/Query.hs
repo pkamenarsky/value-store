@@ -89,9 +89,9 @@ data KP t where
 
 -- deriving instance Generic (KP t)
 deriving instance Typeable (KP t)
-deriving instance Show (KP t)
 deriving instance Eq (KP t)
 deriving instance Ord (KP t)
+deriving instance Show (KP t)
 
 data K t a = K { key :: KP t, unK :: a } deriving (Eq, Ord, Generic, Typeable, Show)
 
@@ -135,8 +135,8 @@ data Expr r a where
   Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
   Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
 
-instance Show (a -> b) where
-  show _ = "(a -> b)"
+instance Show (a -> Maybe b) where
+  show _ = "(a -> Maybe b)"
 
 deriving instance Show (Expr r a)
 
@@ -425,6 +425,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
             return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
           Delete -> do
+            traceIO $ show $ SP (key r) WP
             return [ (Delete, K (SP (key r) WP) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rl')
     else do
@@ -437,6 +438,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
             -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
             return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
           Delete -> do
+            traceIO $ show $ SP WP (key r)
             return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
       return (Join l f qcl qcr, Unsorted, concat rr')
 
