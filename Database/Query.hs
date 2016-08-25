@@ -57,13 +57,15 @@ import Database.Generic
 
 import Debug.Trace
 
-insertBy' :: (a -> a -> Ordering) -> a -> [a] -> Int -> (Int, [a])
-insertBy' _   x [] i = (i, [x])
-insertBy' cmp x ys@(y:ys') i
+insertBy' :: (a -> a -> Ordering) -> Int -> a -> [a] -> (Int, [a])
+insertBy' _   i x [] = (i, [x])
+insertBy' cmp i x ys@(y:ys')
  = case cmp x y of
-     EQ -> (i, x : ys')
-     GT -> let (i', ys'') = insertBy' cmp x ys' (i + 1) in (i', y : ys'')
+     GT -> let (i', ys'') = insertBy' cmp (i + 1) x ys' in (i', y : ys'')
      _  -> (i, x : ys)
+
+insertByKey :: Eq b => (a -> a -> Ordering) -> (a -> b) -> a -> [a] -> (Int, [a])
+insertByKey f k x = insertBy' f 0 x . deleteBy ((==) `on` k) x
 
 --------------------------------------------------------------------------------
 
@@ -383,7 +385,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
   where
     go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
-      | (i', cache') <- insertBy' (comparing (foldExpr expr . unK)) a cache 0
+      | (i', cache') <- insertByKey (comparing (foldExpr expr . unK)) key a cache
       , i' < fromMaybe maxBound limit = do
           (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')
@@ -427,8 +429,8 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
       return (Join l f qcl qcr, Unsorted, concat rr')
 
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
-reconcile' Unsorted (Insert, a) as      = a:as
-reconcile' (SortBy expr) (Insert, a) as = insertBy (comparing (foldExpr expr . unK)) a as
+reconcile' Unsorted (Insert, a) as      = snd $ insertByKey (\_ _ -> LT) key a as
+reconcile' (SortBy expr) (Insert, a) as = snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
 reconcile' _ (Delete, a) as             = deleteBy (cmpKP `on` key) a as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
