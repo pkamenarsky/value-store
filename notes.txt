@@ -1,0 +1,3 @@
+* optimize data structures
+* merge queries
+  * i.e. merge limits / offsets
