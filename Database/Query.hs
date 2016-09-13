@@ -100,7 +100,7 @@ KP k   `cmpKP` KP k'    = k == k'
 _      `cmpKP` WP       = True
 WP     `cmpKP` _        = True
 SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
-_      `cmpKP` _        = error "Keys not structurally equivalent"
+-- _      `cmpKP` _        = error "Keys not structurally equivalent"
 -- KP _   `cmpKP` SP _ _   = error "Key not structurally equivalent"
 -- SP _ _ `cmpKP` KP _     = error "Key not structurally equivalent"
 
@@ -123,6 +123,9 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
     a <- PS.fromRow
     b <- PS.fromRow
     return $ K (SP (key a) (key b)) (unK a :. unK b)
+
+class IsExpr e r n where
+  toExpr :: e r n
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c

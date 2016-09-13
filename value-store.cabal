@@ -22,9 +22,11 @@ library
                      , Database.Value.VTM
                      , Database.Query
                      , Database.Generic
+                     , Database.Bookkeeper
   -- other-modules:       
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric
   build-depends:       base >=4.7 && <5
+                     , bookkeeper
                      , bytestring
                      , postgresql-simple
                      , postgresql-libpq

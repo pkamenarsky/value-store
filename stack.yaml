@@ -2,16 +2,23 @@
 # For more information, see: http://docs.haskellstack.org/en/stable/yaml_configuration/
 
 # Specifies the GHC version and set of packages available (e.g., lts-3.5, nightly-2015-09-21, ghc-7.10.2)
-resolver: lts-6.3
+resolver: nightly-2016-09-02
+# resolver: lts-6.3
 
 # Local packages, usually specified by relative directory name
 packages:
 - '.'
+
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+  - cryptonite-0.19
+  - bookkeeper-0.2.2.0
+  - type-level-sets-0.7
 
 # Override default flag values for local packages and extra-deps
-flags: {}
+flags:
+  cryptonite:
+    support_rdrand: false
 
 # Extra package databases containing global packages
 extra-package-dbs: []

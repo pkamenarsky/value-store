@@ -144,7 +144,7 @@ instance (Selector c, GFields f) => GFields (S1 c f) where
   gCnstM _ = Nothing
   gCnstS = fmap M1 <$> gCnstS
 
-instance (GFields (Rep f), Fields f) => GFields (K1 R f) where
+instance ({-GFields (Rep f),-} Fields f) => GFields (K1 R f) where
   gFields (Just (K1 x)) = fields (Just x)
   gFields Nothing = fields (Nothing :: Maybe f)
   gCnst obj = fmap K1 <$> cnst obj
