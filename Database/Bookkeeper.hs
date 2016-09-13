@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -44,23 +45,27 @@ type Person = Book
 
 data A = A { number :: Int, person :: Person } deriving Generic
 
-instance A.ToJSON (Book' kvs)
 instance A.ToJSON A
+instance A.ToJSON (Book' '[])
+instance (A.ToJSON (Book' m), A.ToJSON v) => A.ToJSON (Book' (k :=> v ': m))
 
-{-
+instance A.FromJSON A
+instance A.FromJSON (Book' '[])
+instance (A.FromJSON (Book' m), A.FromJSON v) => A.FromJSON (Book' (k :=> v ': m))
+
 instance Generic (Book' '[]) where
   type Rep (Book' '[]) = U1
   from _ = U1
   to _   = Book (Map.Empty)
 
-instance (Generic (Book' m)) => Generic (Book' (k :=> v ': m)) where
-  type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 v) :*: Rep (Book' m)
-  from (Book (Map.Ext k v m)) = M1 (K1 v) :*: from (Book m)
-  to (M1 (K1 v) :*: m) = Book (Map.Ext (Map.Var :: Map.Var k) v (getBook (to m)))
--}
+instance {- (Generic (Book' m)) => -} Generic (Book' (k :=> v ': m)) where
+  -- type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 v) :*: Rep (Book' m)
+  -- from (Book (Map.Ext k v m)) = M1 (K1 v) :*: from (Book m)
+  -- to (M1 (K1 v) :*: m) = Book (Map.Ext (Map.Var :: Map.Var k) v (getBook (to m)))
 
-instance Generic (Book' kvs) where
-  type Rep (Book' kvs) = S1 ('MetaSel ('Just "asd") 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 String)
+  type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 v) :*: S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 (Book' m))
+  from (Book (Map.Ext k v m)) = M1 (K1 v) :*: (M1 (K1 (Book m)))
+  to (M1 (K1 v) :*: (M1 (K1 (Book m)))) = Book (Map.Ext (Map.Var :: Map.Var k) v m)
 
 instance Fields (Book' '[]) where
   fields _ = Object []
@@ -82,6 +87,7 @@ p = emptyBook
     & #bff =: True
   )
 
+{-
 test_fields :: Object PS.Action
 test_fields = fields $ Just $ emptyBook
   & #name =: "name_value"
@@ -89,4 +95,5 @@ test_fields = fields $ Just $ emptyBook
   & #nested =: (emptyBook
     & #bff =: True
   )
+-}
 
