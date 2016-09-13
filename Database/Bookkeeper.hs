@@ -24,8 +24,15 @@ import qualified Database.PostgreSQL.Simple.Internal as PS
 
 import qualified Data.Type.Map as Map
 
+import GHC.Generics
 import GHC.OverloadedLabels
 import GHC.TypeLits
+
+instance Generic (Book' '[]) where
+  type Rep (Book' '[]) = U1
+
+instance (Generic (Book' m), Generic v) => Generic (Book' (k :=> v ': m)) where
+  type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rep v) :*: Rep (Book' m)
 
 instance Fields (Book' '[]) where
   fields _ = Object []
