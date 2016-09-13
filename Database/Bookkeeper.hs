@@ -44,6 +44,6 @@ test_fields :: Object PS.Action
 test_fields = fields $ Just $ emptyBook
   & #name =: "name_value"
   & #age =: (66 :: Int)
-  & #ntest =: (emptyBook
+  & #nested =: (emptyBook
     & #bff =: True
   )
