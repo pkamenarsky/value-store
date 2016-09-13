@@ -10,6 +10,8 @@
 
 module Database.Bookkeeper where
 
+import Control.Monad.Trans
+
 import Bookkeeper
 import Bookkeeper.Internal
 
@@ -69,16 +71,15 @@ instance {- (Generic (Book' m)) => -} Generic (Book' (k :=> v ': m)) where
 
 instance Fields (Book' '[]) where
   fields _ = Object []
-  cnst = undefined
-  cnstM = undefined
-  cnstS = undefined
+  cnstS = return $ Just (Book Map.Empty)
 
 instance (KnownSymbol k, Fields v, Fields (Book' m)) => Fields (Book' (k :=> v ': m)) where
   fields (Just (Book (Map.Ext k v m))) = Object $ (symbolVal k, fields (Just v)):kvs
     where Object kvs = fields (Just (Book m))
-  cnst = undefined
-  cnstM = undefined
-  cnstS = undefined
+  cnstS = do
+    Just v <- cnstS
+    Just m <- cnstS
+    return (Just (Book (Map.Ext (Map.Var :: Map.Var k) v (getBook m))))
 
 p = emptyBook
   & #name =: "name_value"
