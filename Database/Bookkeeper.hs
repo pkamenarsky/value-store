@@ -33,17 +33,17 @@ instance Fields (Book' '[]) where
   cnstM = undefined
   cnstS = undefined
 
-instance (KnownSymbol k, Fields (Book' m)) => Fields (Book' (k :=> String ': m)) where
-  fields (Just (Book (Map.Ext k v m))) = Object [(symbolVal k, Value $ PS.Escape $ BC.pack v)]
-  cnst = undefined
-  cnstM = undefined
-  cnstS = undefined
-
-instance {-# OVERLAPPABLE #-} (KnownSymbol k, Fields v, Fields (Book' m)) => Fields (Book' (k :=> v ': m)) where
-  fields (Just (Book (Map.Ext k v m))) = Object [(symbolVal k, fields (Just v))]
+instance (KnownSymbol k, Fields v, Fields (Book' m)) => Fields (Book' (k :=> v ': m)) where
+  fields (Just (Book (Map.Ext k v m))) = Object $ (symbolVal k, fields (Just v)):kvs
+    where Object kvs = fields (Just (Book m))
   cnst = undefined
   cnstM = undefined
   cnstS = undefined
 
 test_fields :: Object PS.Action
-test_fields = fields (Just (emptyBook & #name =: "name_value"))
+test_fields = fields $ Just $ emptyBook
+  & #name =: "name_value"
+  & #age =: (66 :: Int)
+  & #ntest =: (emptyBook
+    & #bff =: True
+  )
