@@ -1,10 +1,12 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -54,7 +56,11 @@ import Database.PostgreSQL.Simple.Types ((:.)(..))
 import System.IO.Unsafe
 
 import GHC.Generics
+
+import Bookkeeper hiding (Key, get, modify)
+
 import Database.Generic
+import Database.Bookkeeper
 
 import Debug.Trace
 
@@ -262,9 +268,12 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 --------------------------------------------------------------------------------
 
+type UndeadB = Book '[ "kills" :=> Int ]
+
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
-            | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
+            --  | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
+            | Undead UndeadB deriving (Eq, {- Ord, -} Generic, Typeable, Show)
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
@@ -578,6 +587,9 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
+  insertRow conn ("key0") (Undead $ emptyBook & #kills =: 5)
+
+  {-
   forM_ [0..10] $ \limit -> do
     PS.execute_ conn "delete from person"
 
@@ -588,14 +600,15 @@ testSort = do
              -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn q
-          if (S.fromList rs /= S.fromList rs')
+          -- if (S.fromList rs /= S.fromList rs')
+          if (rs /= rs')
             then do
               traceIO "Different results, expected: "
               traceIO $ show rs'
               traceIO "Received: "
               traceIO $ show rs
               traceIO "Difference: "
-              traceIO $ show ((S.fromList rs' `S.difference` S.fromList rs) `S.union` (S.fromList rs `S.difference` S.fromList rs'))
+              -- traceIO $ show ((S.fromList rs' `S.difference` S.fromList rs) `S.union` (S.fromList rs `S.difference` S.fromList rs'))
               traceIO "Query: "
               traceIO $ show q
               error "Aborting"
@@ -619,5 +632,6 @@ testSort = do
       putMVar lock ()
 
     killThread tid
+  -}
 
 --------------------------------------------------------------------------------

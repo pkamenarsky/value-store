@@ -39,14 +39,19 @@ import GHC.Generics
 import GHC.OverloadedLabels
 import GHC.TypeLits
 
-type Person = Book
+type PersonB = Book
   '[ "name" :=> String
    , "age"  :=> Int
    , "nested" :=> (Book
      '[ "bff" :=> Bool ])
    ]
 
-data A = A { number :: Int, person :: Person } deriving (Eq, Generic)
+instance (Fields (Book' a)) => GFields (S1 c (K1 R (Book' a))) where
+  gFields (Just (M1 (K1 f))) = fields (Just f)
+  gFields Nothing = error "gFields"
+  gCnstS = fmap M1 <$> gCnstS
+
+data A = A { number :: Int, person :: PersonB } deriving (Eq, Generic)
 
 instance A.ToJSON A
 instance A.ToJSON (Book' '[])
