@@ -268,7 +268,18 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 --------------------------------------------------------------------------------
 
-type UndeadB = Book '[ "kills" :=> Int ]
+data Permission prf a = Permission a deriving (Eq, Generic, Typeable, Show)
+
+instance (A.FromJSON a) => A.FromJSON (Permission prf a)
+instance (A.ToJSON a)   => A.ToJSON (Permission prf a)
+
+instance (PS.ToField a) => PS.ToField (Permission prf a) where
+  toField (Permission a) = PS.toField a
+
+instance (PS.FromField a) => PS.FromField (Permission prf a) where
+  fromField f dat = Permission <$> PS.fromField f dat
+
+type UndeadB = Book '[ "kills" :=> Permission Int Int ]
 
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
@@ -588,7 +599,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  insertRow conn ("key0") (Undead $ emptyBook & #kills =: 5)
+  insertRow conn ("key0") (Undead $ emptyBook & #kills =: Permission 5)
 
   {-
   forM_ [0..10] $ \limit -> do
