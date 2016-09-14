@@ -585,7 +585,7 @@ test = do
   {-
   modifyRow conn (Admin `Set.Ext` Set.Empty) (Key "key0") $ \(p) ->
     case p of
-      Undead p -> Undead (p & #kills =: unsafePermission 7)
+      Undead p -> Undead (p & #kills =: 7)
   -}
 
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
