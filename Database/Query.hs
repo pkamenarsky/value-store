@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -18,7 +19,7 @@
 module Database.Query where
 
 import Control.Monad hiding (join)
-import Control.Monad.Trans.State.Strict hiding (join)
+import Control.Monad.Trans.State.Strict
 import Control.Concurrent
 import Control.Concurrent.MVar
 
@@ -56,11 +57,17 @@ import Database.PostgreSQL.Simple.Types ((:.)(..))
 import System.IO.Unsafe
 
 import GHC.Generics
+import GHC.TypeLits
 
 import Bookkeeper hiding (Key, get, modify)
+import Bookkeeper.Permissions hiding (modify, read, insert)
+import qualified Bookkeeper.Permissions as PRM
 
 import Database.Generic
 import Database.Bookkeeper
+
+import qualified Data.Type.Map as Map
+import qualified Data.Type.Set as Set
 
 import Debug.Trace
 
@@ -268,18 +275,18 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 --------------------------------------------------------------------------------
 
-data Permission prf a = Permission a deriving (Eq, Generic, Typeable, Show)
+instance (A.FromJSON a) => A.FromJSON (Permission (prf :: [Map.Mapping Symbol *]) a)
+instance (A.ToJSON a)   => A.ToJSON (Permission (prf :: [Map.Mapping Symbol *]) a)
 
-instance (A.FromJSON a) => A.FromJSON (Permission prf a)
-instance (A.ToJSON a)   => A.ToJSON (Permission prf a)
+instance (PS.ToField a) => PS.ToField (Permission (prf :: [Map.Mapping Symbol *]) a) where
+  toField a = PS.toField (unsafeUnpackPermission a)
 
-instance (PS.ToField a) => PS.ToField (Permission prf a) where
-  toField (Permission a) = PS.toField a
+instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbol *]) a) where
+  fromField f dat = unsafePermission <$> PS.fromField f dat
 
-instance (PS.FromField a) => PS.FromField (Permission prf a) where
-  fromField f dat = Permission <$> PS.fromField f dat
+data Admin = Admin
 
-type UndeadB = Book '[ "kills" :=> Permission Int Int ]
+type UndeadB = Book '[ "kills" :=> Permission '[ "read" :=> Admin ] Int ]
 
 data Person = Person { _name :: String, _age :: Int }
             | Robot { _ai :: Bool }
@@ -572,7 +579,12 @@ test = do
   rs <- query conn allPersons (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
-  traceIO $ show rs
+  forM_ (fst rs) $ \p -> do
+    case unK p of
+      Undead p -> print (PRM.read (Admin `Set.Ext` Set.Empty) p)
+      _ -> return ()
+
+  -- traceIO $ show rs
 
   {-
   let rec  = (Person "john" 222)
@@ -599,7 +611,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  insertRow conn ("key0") (Undead $ emptyBook & #kills =: Permission 5)
+  insertRow conn ("key0") (Undead $ emptyBook & #kills =: unsafePermission 5)
 
   {-
   forM_ [0..10] $ \limit -> do
