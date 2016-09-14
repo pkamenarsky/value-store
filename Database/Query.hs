@@ -557,7 +557,8 @@ test = do
   -- traceIO $ show rs
 
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
-  rs <- query conn simplejoinai (traceIO . show)
+  -- rs <- query conn simplejoinai (traceIO . show)
+  rs <- query conn allPersons (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
   traceIO $ show rs

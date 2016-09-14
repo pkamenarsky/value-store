@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -48,7 +49,7 @@ type PersonB = Book
 
 instance (Fields (Book' a)) => GFields (S1 c (K1 R (Book' a))) where
   gFields (Just (M1 (K1 f))) = fields (Just f)
-  gFields Nothing = error "gFields"
+  gFields Nothing = fields (Nothing :: Maybe (Book' a))
   gCnstS = fmap M1 <$> gCnstS
 
 data A = A { number :: Int, person :: PersonB } deriving (Eq, Generic)
@@ -94,6 +95,8 @@ instance Fields (Book' '[]) where
 instance (KnownSymbol k, Fields v, Fields (Book' m)) => Fields (Book' (k :=> v ': m)) where
   fields (Just (Book (Map.Ext k v m))) = Object $ (symbolVal k, fields (Just v)):kvs
     where Object kvs = fields (Just (Book m))
+  fields Nothing = Object $ (symbolVal (Proxy :: Proxy k), fields (Nothing :: Maybe v)):kvs
+    where Object kvs = fields (Nothing :: Maybe (Book' m))
   cnstS = do
     Just v <- cnstS
     Just m <- cnstS
