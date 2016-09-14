@@ -582,6 +582,12 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
+  {-
+  modifyRow conn (Admin `Set.Ext` Set.Empty) (Key "key0") $ \(p) ->
+    case p of
+      Undead p -> Undead (p & #kills =: unsafePermission 7)
+  -}
+
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
 
@@ -590,6 +596,7 @@ test = do
   rs <- query conn allPersons (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
+
   forM_ (fst rs) $ \p -> do
     case unK p of
       Undead p -> print (PRM.read (Admin `Set.Ext` Set.Empty) p)
