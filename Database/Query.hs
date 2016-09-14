@@ -96,7 +96,7 @@ insertByKey f k x = insertBy' f 0 x . deleteAllBy ((k x ==) . k)
 
 -- data KP = KP String | SP KP KP | WP
 data KP t where
-  KP :: String -> KP Key
+  KP :: String -> KP (Key a)
   WP :: KP t
   SP :: KP t -> KP u -> KP (t :. u)
 
@@ -123,7 +123,7 @@ instance Fields a => PS.ToRow (K t a) where
     where K (KP k) v = a
 -}
 
-instance Fields a => PS.FromRow (K Key a) where
+instance Fields a => PS.FromRow (K (Key a) a) where
   fromRow = do
     k <- PS.field
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
@@ -198,10 +198,10 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue Action String A.Value
 
-type Key = String
+newtype Key a = Key String
 
 data Query' a l where
-  All    :: (PS.FromRow (K Key a), A.FromJSON a) => l -> Row -> Query' (K Key a) l
+  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
   Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
   Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
@@ -212,7 +212,7 @@ type Query a = Query' a ()
 type LQuery a = Query' a String
 type CQuery a = Query' a String
 
-all :: forall a. (Typeable a, PS.FromRow (K Key a), Fields a, A.FromJSON a) => Query (K Key a)
+all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
 all = All () (Row table kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
@@ -366,7 +366,7 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
-qr :: Query (K Key Person)
+qr :: Query (K (Key Person) Person)
 qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -378,7 +378,7 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
-allPersons :: Query (K Key Person)
+allPersons :: Query (K (Key Person) Person)
 allPersons = all
 
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
@@ -523,6 +523,17 @@ deleteRow conn k _ = do
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
+
+modifyRow :: forall a prf. (Show a, Typeable a, A.ToJSON a, Fields a, PS.ToRow a, PS.FromRow a, ElimList "modify" prf a)
+          => PS.Connection
+          -> Set.Set prf
+          -> Key a
+          -> (ElimListM "modify" prf a -> ElimListM "modify" prf a)
+          -> IO ()
+modifyRow conn prf (Key key) f = do
+  [a] <- PS.query conn "select * from person where key = ?" (PS.Only key) :: IO [a]
+  let a' = PRM.modify prf f a
+  insertRow conn key a'
 
 deriving instance Show PS.Notification
 
