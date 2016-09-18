@@ -300,8 +300,6 @@ data Address = Address { _street :: String, _person :: Person } deriving (Generi
 instance A.FromJSON a => A.FromJSON (Person' a)
 instance A.ToJSON a => A.ToJSON (Person' a)
 
--- instance PS.FromRow (Person' a)
-
 instance A.FromJSON Address
 instance A.ToJSON Address
 

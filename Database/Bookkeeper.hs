@@ -64,12 +64,6 @@ instance A.FromJSON (Book' '[])
 instance (Generic (Book' m)) => A.FromJSON (Book' (k :=> v ': m)) where
   parseJSON = undefined
 
-instance (PS.FromField v, PS.FromRow (Book' m), Generic (Book' m)) => PS.FromRow (Book' (k :=> v ': m)) where
-  fromRow = undefined
-
-instance (PS.ToField v, PS.ToRow (Book' m), Generic (Book' m)) => PS.ToRow (Book' (k :=> v ': m)) where
-  toRow = undefined
-
 instance Generic (Book' '[]) where
   type Rep (Book' '[]) = U1
   from _ = U1
@@ -79,10 +73,6 @@ instance (Generic (Book' m)) => Generic (Book' (k :=> v ': m)) where
   type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 v) :*: Rep (Book' m)
   from (Book (Map.Ext k v m)) = M1 (K1 v) :*: from (Book m)
   to (M1 (K1 v) :*: m) = Book (Map.Ext (Map.Var :: Map.Var k) v (getBook (to m)))
-
-  -- type Rep (Book' (k :=> v ': m)) = S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 v) :*: S1 ('MetaSel ('Just k) 'NoSourceUnpackedness 'NoSourceStrictness 'DecidedLazy) (Rec0 (Book' m))
-  -- from (Book (Map.Ext k v m)) = M1 (K1 v) :*: (M1 (K1 (Book m)))
-  -- to (M1 (K1 v) :*: (M1 (K1 (Book m)))) = Book (Map.Ext (Map.Var :: Map.Var k) v m)
 
 instance Fields (Book' '[]) where
   fields _ = Object []
@@ -105,7 +95,6 @@ p = emptyBook
     & #bff =: True
   )
 
-{-
 test_fields :: Object PS.Action
 test_fields = fields $ Just $ emptyBook
   & #name =: "name_value"
@@ -113,5 +102,4 @@ test_fields = fields $ Just $ emptyBook
   & #nested =: (emptyBook
     & #bff =: True
   )
--}
 
