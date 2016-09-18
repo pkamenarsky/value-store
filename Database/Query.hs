@@ -286,22 +286,27 @@ instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbo
 
 data Admin = Admin
 
-type UndeadB = Book '[ "kills" :=> Permission '[ "read" :=> Admin ] Int ]
+type UndeadT = Book '[ "kills" :=> Permission '[ "read" :=> Admin ] Int ]
 
-data Person = Person { _name :: String, _age :: Int }
-            | Robot { _ai :: Bool }
-            --  | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
-            | Undead UndeadB deriving (Eq, {- Ord, -} Generic, Typeable, Show)
+data Person' a = Person { _name :: String, _age :: Int }
+               | Robot { _ai :: Bool }
+               --  | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
+               | Undead a deriving (Eq, {- Ord, -} Generic, Typeable, Show)
+
+type Person = Person' UndeadT
 
 data Address = Address { _street :: String, _person :: Person } deriving (Generic, Typeable, Show)
 
-instance A.FromJSON Person
-instance A.ToJSON Person
+instance A.FromJSON a => A.FromJSON (Person' a)
+instance A.ToJSON a => A.ToJSON (Person' a)
+
+instance PS.FromRow (Person' a) where
+  fromRow = undefined
 
 instance A.FromJSON Address
 instance A.ToJSON Address
 
-instance Fields Person
+instance Fields a => Fields (Person' a)
 instance Fields Address
 
 data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: String } deriving (Generic, Show)
@@ -496,10 +501,10 @@ fillCaches conn (Join l a ql qr) = do
   qr' <- fillCaches conn qr
   return (Join l a ql' qr')
 
-insertRow :: forall a. (Show a, Typeable a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+insertRow :: forall a. (Show a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
-      table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
+      table  = "person" -- map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
@@ -524,15 +529,16 @@ deleteRow conn k _ = do
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
 
-modifyRow :: forall a prf. (Show a, Typeable a, A.ToJSON a, Fields a, PS.ToRow a, PS.FromRow a, ElimList "modify" prf a)
+modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
           => PS.Connection
           -> Set.Set prf
           -> Key a
-          -> (ElimListM "modify" prf a -> ElimListM "modify" prf a)
+          -> (MapADTM "modify" prf a -> MapADTM "modify" prf a)
           -> IO ()
 modifyRow conn prf (Key key) f = do
   [a] <- PS.query conn "select * from person where key = ?" (PS.Only key) :: IO [a]
-  let a' = PRM.modify prf f a
+  let (t, f) = PRM.mapADT (Proxy :: Proxy "modify") prf
+  let a' = t . f . t $ a
   insertRow conn key a'
 
 deriving instance Show PS.Notification
@@ -582,11 +588,9 @@ test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  {-
-  modifyRow conn (Admin `Set.Ext` Set.Empty) (Key "key0") $ \(p) ->
+  modifyRow conn (Admin `Set.Ext` Set.Empty) (Key "key0" :: Key Person) $ \(p) ->
     case p of
       Undead p -> Undead (p & #kills =: 7)
-  -}
 
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
@@ -629,7 +633,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  insertRow conn ("key0") (Undead $ emptyBook & #kills =: unsafePermission 5)
+  insertRow conn ("key0") (Undead $ emptyBook & #kills =: unsafePermission 5 :: Person)
 
   {-
   forM_ [0..10] $ \limit -> do

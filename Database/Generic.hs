@@ -84,7 +84,7 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   fields Nothing  = Value (PS.toField "")
   cnstS = lift $ PS.field
 
-instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
+instance {-# INCOHERENT #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
 
 class GFields f where
