@@ -534,6 +534,7 @@ modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.ToJSON
           -> IO ()
 modifyRow conn prf (Key key) f = do
   [a] <- PS.query conn "select * from person where key = ?" (PS.Only key) :: IO [a]
+  print a
   let (t, f) = PRM.mapADT (Proxy :: Proxy "modify") prf
   let a' = t . f . t $ a
   insertRow conn key a'
@@ -568,8 +569,6 @@ query conn q cb = do
           cb rs'
           go q' rs'
         Nothing -> go q rs
-
-data W a = W a deriving Show
 
 test :: IO ()
 test = do

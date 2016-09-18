@@ -21,6 +21,8 @@ import Data.Type.Bool
 import Data.Type.Equality
 
 import Data.Proxy
+import Data.Text as T
+import Data.HashMap.Strict as H
 
 import qualified Data.ByteString.Char8 as BC
 
@@ -55,14 +57,22 @@ instance (Fields (Book' a)) => GFields (S1 c (K1 R (Book' a))) where
 data A = A { number :: Int, person :: PersonB } deriving (Eq, Generic)
 
 instance A.ToJSON A
-instance A.ToJSON (Book' '[])
-instance (A.ToJSON v) => A.ToJSON (Book' (k :=> v ': m)) where
-  toJSON = undefined
+instance A.ToJSON (Book' '[]) where
+  toJSON _ = A.Null
+instance (KnownSymbol k, A.ToJSON (Book' m), A.ToJSON v) => A.ToJSON (Book' (k :=> v ': m)) where
+  toJSON (Book (Map.Ext k v m)) = case A.toJSON (Book m) of
+    A.Object kvs -> A.Object $
+      H.fromList [ (T.pack (symbolVal k), A.toJSON v) ] `H.union` kvs
+    _ -> A.Object $ H.fromList [ (T.pack (symbolVal k), A.toJSON v) ]
 
 instance A.FromJSON A
-instance A.FromJSON (Book' '[])
-instance (Generic (Book' m)) => A.FromJSON (Book' (k :=> v ': m)) where
-  parseJSON = undefined
+instance A.FromJSON (Book' '[]) where
+  parseJSON _ = return (Book Map.Empty)
+instance (KnownSymbol k, A.FromJSON v, A.FromJSON (Book' m)) => A.FromJSON (Book' (k :=> v ': m)) where
+  parseJSON o'@(A.Object o) = do
+    v <- o A..: T.pack (symbolVal (Proxy :: Proxy k))
+    Book m' <- A.parseJSON o'
+    return $ Book (Map.Ext (Map.Var :: Map.Var k) v m')
 
 instance Generic (Book' '[]) where
   type Rep (Book' '[]) = U1
@@ -88,6 +98,7 @@ instance (KnownSymbol k, Fields v, Fields (Book' m)) => Fields (Book' (k :=> v '
     Just m <- cnstS
     return (Just (Book (Map.Ext (Map.Var :: Map.Var k) v (getBook m))))
 
+p :: PersonB
 p = emptyBook
   & #name =: "name_value"
   & #age =: (66 :: Int)

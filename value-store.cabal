@@ -37,6 +37,7 @@ library
                      , containers
                      , cryptohash
                      , text
+                     , unordered-containers
                      , type-level-sets
   -- hs-source-dirs:      
   default-language:    Haskell2010
