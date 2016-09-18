@@ -300,8 +300,7 @@ data Address = Address { _street :: String, _person :: Person } deriving (Generi
 instance A.FromJSON a => A.FromJSON (Person' a)
 instance A.ToJSON a => A.ToJSON (Person' a)
 
-instance PS.FromRow (Person' a) where
-  fromRow = undefined
+-- instance PS.FromRow (Person' a)
 
 instance A.FromJSON Address
 instance A.ToJSON Address
@@ -573,16 +572,6 @@ query conn q cb = do
         Nothing -> go q rs
 
 data W a = W a deriving Show
-
-instance Fields a => PS.FromRow (W a) where
-  fromRow = do
-    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    {-
-    a <- fromMaybe (error "Can't parse K") <$> cnstM $ fields (Nothing :: Maybe a)
-    rmn <- PS.numFieldsRemaining
-    replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
-    -}
-    return (W a)
 
 test :: IO ()
 test = do

@@ -19,6 +19,8 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
 
 import Control.Applicative ((<|>))
+
+import Data.Maybe
 import Data.Proxy
 
 import GHC.Generics
@@ -86,6 +88,11 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
 
 instance {-# INCOHERENT #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
+
+instance {-# INCOHERENT #-} Fields a => PS.FromRow a where
+  fromRow = do
+    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
+    return a
 
 class GFields f where
   gFields :: Maybe (f a) -> Object PS.Action
