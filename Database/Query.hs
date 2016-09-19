@@ -29,6 +29,7 @@ import Data.Char
 import Data.Function              (on)
 import Data.IORef
 import Data.List                  (intersperse, find)
+import qualified Data.List        as L
 import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
@@ -213,10 +214,11 @@ type LQuery a = Query' a String
 type CQuery a = Query' a String
 
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
-all = All () (Row table kvs)
+all = All () (Row table' kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
+    table' = L.filter (/= '\'') table
 
 filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
@@ -309,6 +311,9 @@ instance Fields Address
 data Image = Horizontal { what :: Int } | Vertical { who :: Person, why :: String } deriving (Generic, Show)
 
 instance Fields Image
+
+keyE :: Expr a String
+keyE = Fld "key" (error "keyE can be used only live")
 
 nameE :: Expr (Person) String
 nameE = Fld "name" $ \p -> case p of
@@ -526,17 +531,17 @@ deleteRow conn k _ = do
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
 
-modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
+modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
           => PS.Connection
           -> Set.Set prf
           -> Key a
           -> (MapADTM "modify" prf a -> MapADTM "modify" prf a)
           -> IO ()
 modifyRow conn prf (Key key) f = do
-  [a] <- PS.query conn "select * from person where key = ?" (PS.Only key) :: IO [a]
+  [a] <- query_ conn (filter (keyE `Eqs` Cnst key) $ all) :: IO [K (Key a) a]
   print a
   let (t, f) = PRM.mapADT (Proxy :: Proxy "modify") prf
-  let a' = t . f . t $ a
+  let a' = t . f . t $ unK a
   insertRow conn key a'
 
 deriving instance Show PS.Notification

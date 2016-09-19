@@ -112,7 +112,7 @@ instance (GFields f, Constructor c) => GFields (C1 c f) where
   gCnstS = fmap M1 <$> gCnstS
 
 instance {-# OVERLAPPABLE #-} (Selector c, GFields f) => GFields (S1 c f) where
-  gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
+  -- gFields _ | null (selName (undefined :: S1 c f ())) = error "Types without record selectors not supported yet"
   gFields (Just (M1 x)) = Object [ (selName (undefined :: S1 c f ()), gFields (Just x))]
   gFields Nothing = Object [ (selName (undefined :: S1 c f ()), gFields (Nothing :: Maybe (f ())))]
   gCnstS = fmap M1 <$> gCnstS
