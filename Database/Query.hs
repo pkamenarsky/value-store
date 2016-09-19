@@ -179,7 +179,8 @@ lookupVar ctx name =
     _                   -> error "More than one var"
 
 foldExprSql :: Ctx -> Expr r a -> String
-foldExprSql ctx (Cnst a) = show a
+-- TODO: FIXME
+foldExprSql ctx (Cnst a) = "'" ++ (L.filter (/= '\"') $ show a) ++ "'"
 foldExprSql ctx (Fld name _) = lookupVar ctx name
 foldExprSql ctx (Fld name _ :+: Fld name' _) = lookupVar ctx (name ++ "_" ++ name')
 foldExprSql ctx (_ :+: _) = "Can compose only fields"
@@ -288,7 +289,7 @@ instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbo
 
 data Admin = Admin
 
-type UndeadT = Book '[ "kills" :=> Permission '[ "read" :=> Admin ] Int ]
+type UndeadT = Book '[ "_kills" :=> Permission '[ "read" :=> Admin ] Int ]
 
 data Person' a = Person { _name :: String, _age :: Int }
                | Robot { _ai :: Bool }
@@ -531,6 +532,17 @@ deleteRow conn k _ = do
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
   void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
 
+modifyRow' :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
+          => PS.Connection
+          -> Set.Set prf
+          -> a
+          -> (MapADTM "modify" prf a -> MapADTM "modify" prf a)
+          -> IO ()
+modifyRow' conn prf a f = do
+  let (to, from) = PRM.mapADT (Proxy :: Proxy "modify") prf
+  let a' = from . f . to $ a
+  print a'
+
 modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
           => PS.Connection
           -> Set.Set prf
@@ -540,8 +552,9 @@ modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJS
 modifyRow conn prf (Key key) f = do
   [a] <- query_ conn (filter (keyE `Eqs` Cnst key) $ all) :: IO [K (Key a) a]
   print a
-  let (t, f) = PRM.mapADT (Proxy :: Proxy "modify") prf
-  let a' = t . f . t $ unK a
+  let (to, from) = PRM.mapADT (Proxy :: Proxy "modify") prf
+  let a' = from . f . to $ unK a
+  print a'
   insertRow conn key a'
 
 deriving instance Show PS.Notification
@@ -575,13 +588,23 @@ query conn q cb = do
           go q' rs'
         Nothing -> go q rs
 
+person :: Person
+person = Undead $ emptyBook & #_kills =: unsafePermission 8
+
+person1 = case Database.Query.person of
+  Undead p -> Undead (p & #_kills =: unsafePermission 7)
+
 test :: IO ()
 test = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
+  -- modifyRow' conn (Admin `Set.Ext` Set.Empty) Database.Query.person $ \(p) ->
+  --   case p of
+  --     Undead p -> Undead (p & #_kills =: 7)
+
   modifyRow conn (Admin `Set.Ext` Set.Empty) (Key "key0" :: Key Person) $ \(p) ->
     case p of
-      Undead p -> Undead (p & #kills =: 7)
+      Undead p -> Undead (p & #_kills =: 9)
 
   -- rs <- PS.query_ conn "select cnst as a0_cnst, name as a0_name, age as a0_age, ai as a0_ai, kills as a0_kills from person" :: IO [W Person]
   -- traceIO $ show rs
@@ -591,6 +614,8 @@ test = do
   rs <- query conn allPersons (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
+
+  print "--- Query"
 
   forM_ (fst rs) $ \p -> do
     case unK p of
@@ -624,7 +649,7 @@ testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  insertRow conn ("key0") (Undead $ emptyBook & #kills =: unsafePermission 5 :: Person)
+  insertRow conn ("key0") (Undead $ emptyBook & #_kills =: unsafePermission 5 :: Person)
 
   {-
   forM_ [0..10] $ \limit -> do
