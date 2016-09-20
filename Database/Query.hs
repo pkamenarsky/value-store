@@ -288,6 +288,7 @@ instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbo
   fromField f dat = unsafePermission <$> PS.fromField f dat
 
 data Admin = Admin
+data Auth = Auth
 
 type UndeadT = Book '[ "_kills" :=> Permission '[ "modify" :=> Admin ] Int ]
 
