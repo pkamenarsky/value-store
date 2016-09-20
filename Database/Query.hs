@@ -548,7 +548,22 @@ modifyRow' conn prf a f = do
   let a' = from . f . to $ a
   print a'
 
-modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a, PS.ToRow a)
+modifyRow :: forall a prf.
+           ( Generic a
+           , Fields (MapADTM "modify" prf a)
+           , A.FromJSON a
+           , A.ToJSON (MapADTM "modify" prf a)
+           , Typeable (MapADTM "modify" prf a)
+           , Show (MapADTM "modify" prf a)
+           , Generic (MapADTM "modify" prf a)
+           , MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a))
+           , Show a
+           , Typeable a
+           , A.ToJSON a
+           , Fields a
+           , PS.FromRow a
+           , PS.ToRow a
+           )
           => PS.Connection
           -> Set.Set prf
           -> Key a
