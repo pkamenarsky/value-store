@@ -54,9 +54,6 @@ instance (Fields (Book' a)) => GFields (S1 c (K1 R (Book' a))) where
   gFields Nothing = fields (Nothing :: Maybe (Book' a))
   gCnstS = fmap M1 <$> gCnstS
 
-data A = A { number :: Int, person :: PersonB } deriving (Eq, Generic)
-
-instance A.ToJSON A
 instance A.ToJSON (Book' '[]) where
   toJSON _ = A.Null
 instance (KnownSymbol k, A.ToJSON (Book' m), A.ToJSON v) => A.ToJSON (Book' (k :=> v ': m)) where
@@ -65,7 +62,6 @@ instance (KnownSymbol k, A.ToJSON (Book' m), A.ToJSON v) => A.ToJSON (Book' (k :
       H.fromList [ (T.pack (symbolVal k), A.toJSON v) ] `H.union` kvs
     _ -> A.Object $ H.fromList [ (T.pack (symbolVal k), A.toJSON v) ]
 
-instance A.FromJSON A
 instance A.FromJSON (Book' '[]) where
   parseJSON _ = return (Book Map.Empty)
 instance (KnownSymbol k, A.FromJSON v, A.FromJSON (Book' m)) => A.FromJSON (Book' (k :=> v ': m)) where

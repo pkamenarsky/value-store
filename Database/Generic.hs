@@ -86,10 +86,10 @@ instance {-# OVERLAPPABLE #-} (PS.FromField a, PS.ToField a) => Fields a where
   fields Nothing  = Value (PS.toField "")
   cnstS = lift $ PS.field
 
-instance {-# INCOHERENT #-} Fields a => PS.ToRow a where
+instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
 
-instance {-# INCOHERENT #-} Fields a => PS.FromRow a where
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
   fromRow = do
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return a

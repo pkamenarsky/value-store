@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Database.Expr where
@@ -28,6 +29,8 @@ lookupVar ctx name =
     [(Nothing, var)]    -> var
     []                  -> error "No such var"
     _                   -> error "More than one var"
+
+class ToExpr r a where
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c

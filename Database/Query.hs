@@ -316,6 +316,11 @@ instance Fields Image
 keyE :: Expr a String
 keyE = Fld "key" (error "keyE can be used only live")
 
+killsE :: Expr (Person) Int
+killsE = Fld "kills" $ \p -> case p of
+  Undead p -> Just $ unsafeUnpackPermission $ p ?: #_kills
+  _ -> Nothing
+
 nameE :: Expr (Person) String
 nameE = Fld "name" $ \p -> case p of
   p@Person{..} -> Just _name
@@ -543,7 +548,7 @@ modifyRow' conn prf a f = do
   let a' = from . f . to $ a
   print a'
 
-modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
+modifyRow :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a, PS.ToRow a)
           => PS.Connection
           -> Set.Set prf
           -> Key a
@@ -611,7 +616,7 @@ test = do
 
   -- rs <- query conn (join (Fst aiE `Eqs` Snd (personE :+: aiE)) all (filter ((personE :+: aiE) `Eqs` Cnst True) all)) (traceIO . show)
   -- rs <- query conn simplejoinai (traceIO . show)
-  rs <- query conn allPersons (traceIO . show)
+  rs <- query conn (filter (killsE `Eqs` Cnst 9) $ allPersons) (traceIO . show)
   -- rs <- query conn q2 (traceIO . show)
   -- rs <- query conn allPersons (traceIO . ("CB: "++ ) . show)
 
