@@ -289,7 +289,7 @@ instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbo
 
 data Admin = Admin
 
-type UndeadT = Book '[ "_kills" :=> Permission '[ "read" :=> Admin ] Int ]
+type UndeadT = Book '[ "_kills" :=> Permission '[ "modify" :=> Admin ] Int ]
 
 data Person' a = Person { _name :: String, _age :: Int }
                | Robot { _ai :: Bool }
@@ -637,10 +637,12 @@ test = do
 
   print "--- Query"
 
+  {-
   forM_ (fst rs) $ \p -> do
     case unK p of
       Undead p -> print (PRM.read (Admin `Set.Ext` Set.Empty) p)
       _ -> return ()
+  -}
 
   -- traceIO $ show rs
 
