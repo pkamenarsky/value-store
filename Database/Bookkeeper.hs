@@ -49,11 +49,6 @@ type PersonB = Book
      '[ "bff" :=> Bool ])
    ]
 
-instance (Fields (Book' a)) => GFields (S1 c (K1 R (Book' a))) where
-  gFields (Just (M1 (K1 f))) = fields (Just f)
-  gFields Nothing = fields (Nothing :: Maybe (Book' a))
-  gCnstS = fmap M1 <$> gCnstS
-
 instance A.ToJSON (Book' '[]) where
   toJSON _ = A.Null
 instance (KnownSymbol k, A.ToJSON (Book' m), A.ToJSON v) => A.ToJSON (Book' (k :=> v ': m)) where
