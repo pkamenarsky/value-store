@@ -62,6 +62,7 @@ import System.IO.Unsafe
 import GHC.Generics
 import GHC.TypeLits
 
+import qualified Database.IxMap as Ix
 import Database.Generic
 
 import Debug.Trace
@@ -194,8 +195,6 @@ foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSq
 instance Show (IORef a) where
   show _ = "IORef _"
 
-data QueryCache a = QueryCache (Maybe (IORef [a])) deriving Show
-
 data Row = Row String [String] deriving Show
 
 data DBValue = DBValue Action String A.Value
@@ -205,7 +204,7 @@ newtype Key a = Key String
 data Query' a l where
   All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
   Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Cache () (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -225,7 +224,7 @@ filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
 sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
-sort = Sort () []
+sort expr = Sort () (Ix.empty (comparing key) (comparing (foldExpr expr . unK))) expr
 
 join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
@@ -324,8 +323,6 @@ data Action = Insert | Delete deriving (Eq, Show, Generic)
 instance A.FromJSON Action
 instance A.ToJSON Action
 
-type Cache t a = [a]
-
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
 -- a delete happens, Join (or something else) expects data to be there.
@@ -352,7 +349,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
   where
     go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
-      | (i', cache') <- insertByKey (comparing (foldExpr expr . unK)) key a cache
+      | (i', cache') <- Ix.insert a cache
       , i' < fromMaybe maxBound limit = do
           (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')

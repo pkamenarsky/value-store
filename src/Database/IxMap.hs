@@ -1,10 +1,15 @@
 module Database.IxMap
-  ( empty
+  ( IxMap
+
+  , empty
   , delete
   , insert
   ) where
 
 data IxMap a = IxMap [a] (a -> a -> Ordering) (a -> a -> Ordering)
+
+instance Show a => Show (IxMap a) where
+  show (IxMap as _ _) = show as
 
 empty :: (a -> a -> Ordering) -> (a -> a -> Ordering) -> IxMap a
 empty key sort = IxMap [] key sort
