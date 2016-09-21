@@ -10,6 +10,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -21,6 +22,8 @@ module Database.Query where
 
 import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict
+import Control.Monad.Free
+import Control.Comonad.Cofree
 import Control.Concurrent
 import Control.Concurrent.MVar
 
@@ -95,11 +98,21 @@ newtype Key a = Key String deriving Show
 
 --------------------------------------------------------------------------------
 
-data Query' a where
-  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => Row -> Query' (K (Key a) a)
-  Filter :: PS.FromRow (K t a) => Expr a Bool -> Query' (K t a) -> Query' (K t a)
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) -> Query' (K t a)
-  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query' (K t a) -> Query' (K u b) -> Query' (K (t :. u) (a :. b))
+data Query' a q where
+  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a)
+         => Row -> Query' (K (Key a) a) q
+  Filter :: PS.FromRow (K t a)
+         => Expr a Bool -> q (K t a) -> Query' (K t a) q
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a)
+         => Expr a b -> Maybe Int -> Maybe Int -> q (K t a) -> Query' (K t a) q
+  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b)))
+         => Expr (a :. b) Bool -> q (K t a) -> q (K u b) -> Query' (K (t :. u) (a :. b)) q
+
+mapQ :: Query' a q -> (forall b. q b -> p b) -> Query' a p
+mapQ (All q) f        = All q
+mapQ (Filter e q) f   = Filter e (f q)
+mapQ (Sort e o l q) f = Sort e o l (f q)
+mapQ (Join e ql qr) f = Join e (f ql) (f qr)
 
 {-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
