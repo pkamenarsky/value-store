@@ -33,6 +33,7 @@ library
                      , bookkeeper
                      , bookkeeper-permissions
                      , bytestring
+                     , free
                      , postgresql-simple
                      , postgresql-libpq
                      , mtl
