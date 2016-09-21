@@ -110,16 +110,17 @@ data Query' a q where
 
 newtype Label q l a = Label (q a, l)
 
-newtype QueryF l a = QueryF (l, Query' a (QueryF l))
+newtype Query a = Query (Query' a Query)
+newtype QueryLabel a = QueryLabel (String, Query' a QueryLabel)
 
-type Query a = QueryF () a
+mapQ :: (forall b. q b -> p b) -> Query' a q -> Query' a p
+mapQ f (All r)        = All r
+mapQ f (Filter e q)   = Filter e (f q)
+mapQ f (Sort e o l q) = Sort e o l (f q)
+mapQ f (Join e ql qr) = Join e (f ql) (f qr)
 
--- mapQ :: (forall b. q b -> p b) -> QueryF a -> QueryF a
--- mapQ = undefined
--- mapQ f (QueryF (Label (All q, l)))        = undefined
--- mapQ f (Filter e q)   = Filter e (f q)
--- mapQ f (Sort e o l q) = Sort e o l (f q)
--- mapQ f (Join e ql qr) = Join e (f ql) (f qr)
+test :: Query a -> QueryLabel a
+test (Query q) = QueryLabel ("", mapQ test q)
 
 {-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
