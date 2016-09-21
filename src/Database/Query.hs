@@ -15,6 +15,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Database.Query where
 
@@ -128,8 +129,6 @@ instance Fields a => PS.FromRow (K (Key a) a) where
   fromRow = do
     k <- PS.field
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    -- rmn <- PS.numFieldsRemaining
-    -- replicateM_ rmn (PS.field :: PS.RowParser PS.Null)
     return $ K (KP k) a
 
 instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
@@ -137,6 +136,14 @@ instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :
     a <- PS.fromRow
     b <- PS.fromRow
     return $ K (SP (key a) (key b)) (unK a :. unK b)
+
+instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
+  toRow v = map snd $ flattenObject "" $ fields (Just v)
+
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
+  fromRow = do
+    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
+    return a
 
 class IsExpr e r n where
   toExpr :: e r n
@@ -484,7 +491,7 @@ modifyRow :: forall a prf.
            , Typeable a
            , A.ToJSON a
            , Fields a
-           , PS.FromRow a
+           , PS.FromRow (K (Key a) a)
            , PS.ToRow a
            )
           => PS.Connection
