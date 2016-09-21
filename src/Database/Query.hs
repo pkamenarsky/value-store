@@ -170,8 +170,6 @@ deriving instance Traversable (Query' a)
 labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
---------------------------------------------------------------------------------
-
 aliasColumns :: String -> Ctx -> String
 aliasColumns alias ctx = concat $ intersperse ", "
   [ case calias of
@@ -205,6 +203,8 @@ foldQuerySql (Join l f ql qr) =
             ++ [ (S:p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctxr ]
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
+
+--------------------------------------------------------------------------------
 
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
@@ -301,7 +301,6 @@ fillCaches conn (Filter l a q) = do
 fillCaches conn qq@(Sort l _ expr offset limit q) = do
   cache <- case limit of
     Just _  -> do
-      -- FIXME: call fillCaches first
       rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
       return $ Ix.fromList (map (\a -> (key a, unK a)) rs) (comparing (foldExpr expr))
     Nothing -> return $ Ix.empty (comparing (foldExpr expr))
