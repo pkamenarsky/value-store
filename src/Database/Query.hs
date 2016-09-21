@@ -35,6 +35,7 @@ import Data.Maybe
 import Data.Monoid                ((<>), mconcat)
 import Data.Ord
 import qualified Data.Set                   as S
+import qualified Data.Map                   as M
 import Data.Typeable
 
 import qualified Data.ByteString.Builder as B
@@ -81,6 +82,8 @@ insertBy' cmp i x ys@(y:ys')
 insertByKey :: Eq b => (a -> a -> Ordering) -> (a -> b) -> a -> [a] -> (Int, [a])
 insertByKey f k x = insertBy' f 0 x . deleteAllBy ((k x ==) . k)
 
+
+
 --------------------------------------------------------------------------------
 
 -- NOTE: if we need to restrict the type of certain subexpressions, add a
@@ -107,9 +110,7 @@ KP k   `cmpKP` KP k'    = k == k'
 _      `cmpKP` WP       = True
 WP     `cmpKP` _        = True
 SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
--- _      `cmpKP` _        = error "Keys not structurally equivalent"
--- KP _   `cmpKP` SP _ _   = error "Key not structurally equivalent"
--- SP _ _ `cmpKP` KP _     = error "Key not structurally equivalent"
+_      `cmpKP` _        = error "Keys not structurally equivalent"
 
 {-
 instance Fields a => PS.ToRow (K t a) where

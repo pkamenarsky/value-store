@@ -20,6 +20,7 @@ library
                      , Database.Value.PVar
                      , Database.Value.PSet
                      , Database.Value.VTM
+                     , Database.IxMap
                      , Database.Expr
                      , Database.Query
                      , Database.Generic
