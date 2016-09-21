@@ -108,11 +108,11 @@ data Query' a q where
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b)))
          => Expr (a :. b) Bool -> q (K t a) -> q (K u b) -> Query' (K (t :. u) (a :. b)) q
 
-mapQ :: Query' a q -> (forall b. q b -> p b) -> Query' a p
-mapQ (All q) f        = All q
-mapQ (Filter e q) f   = Filter e (f q)
-mapQ (Sort e o l q) f = Sort e o l (f q)
-mapQ (Join e ql qr) f = Join e (f ql) (f qr)
+mapQ :: (forall b. q b -> p b) -> Query' a q -> Query' a p
+mapQ f (All q)        = All q
+mapQ f (Filter e q)   = Filter e (f q)
+mapQ f (Sort e o l q) = Sort e o l (f q)
+mapQ f (Join e ql qr) = Join e (f ql) (f qr)
 
 {-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
