@@ -68,26 +68,6 @@ import Database.Generic
 
 import Debug.Trace
 
-deleteAllBy :: (a -> Bool) -> [a] -> [a]
-deleteAllBy f [] = []
-deleteAllBy f (x:xs)
-  | f x = deleteAllBy f xs
-  | otherwise = x:deleteAllBy f xs
-
-insertBy' :: (a -> a -> Ordering) -> Int -> a -> [a] -> (Int, [a])
-insertBy' _   i x [] = (i, [x])
-insertBy' cmp i x ys@(y:ys')
- = case cmp x y of
-     GT -> let (i', ys'') = insertBy' cmp (i + 1) x ys' in (i', y : ys'')
-     _  -> (i, x : ys)
-
-insertByKey :: Eq b => (a -> a -> Ordering) -> (a -> b) -> a -> [a] -> (Int, [a])
-insertByKey f k x = insertBy' f 0 x . deleteAllBy ((k x ==) . k)
-
-
-
---------------------------------------------------------------------------------
-
 -- NOTE: if we need to restrict the type of certain subexpressions, add a
 -- phantom type, i.e.
 -- data Expr tp r a where
@@ -306,9 +286,9 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
   return (Join l f qcl qcr, Unsorted, concat rl' ++ concat rr')
 
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
-reconcile' Unsorted (Insert, a) as      = snd $ insertByKey (\_ _ -> LT) key a as
-reconcile' (SortBy expr) (Insert, a) as = snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
-reconcile' _ (Delete, a) as             = deleteAllBy (cmpKP (key a) . key) as
+reconcile' Unsorted (Insert, a) as      = undefined -- snd $ insertByKey (\_ _ -> LT) key a as
+reconcile' (SortBy expr) (Insert, a) as = undefined -- snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
+reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKP (key a) . key) as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
