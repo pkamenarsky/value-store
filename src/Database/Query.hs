@@ -61,15 +61,7 @@ import System.IO.Unsafe
 import GHC.Generics
 import GHC.TypeLits
 
-import Bookkeeper hiding (Key, get, modify)
-import Bookkeeper.Permissions hiding (modify, read, insert)
-import qualified Bookkeeper.Permissions as PRM
-
 import Database.Generic
-import Database.Bookkeeper
-
-import qualified Data.Type.Map as Map
-import qualified Data.Type.Set as Set
 
 import Debug.Trace
 
@@ -285,17 +277,6 @@ foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
 
 keyE :: Expr a String
 keyE = Fld "key" (error "keyE can be used only live")
-
---------------------------------------------------------------------------------
-
-instance (A.FromJSON a) => A.FromJSON (Permission (prf :: [Map.Mapping Symbol *]) a)
-instance (A.ToJSON a)   => A.ToJSON (Permission (prf :: [Map.Mapping Symbol *]) a)
-
-instance (PS.ToField a) => PS.ToField (Permission (prf :: [Map.Mapping Symbol *]) a) where
-  toField a = PS.toField (unsafeUnpackPermission a)
-
-instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbol *]) a) where
-  fromField f dat = unsafePermission <$> PS.fromField f dat
 
 --------------------------------------------------------------------------------
 

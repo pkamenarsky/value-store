@@ -25,6 +25,7 @@ import Database.PostgreSQL.Simple.Types ((:.)(..))
 import qualified Bookkeeper.Permissions as PRM
 import Bookkeeper.Permissions hiding (modify, read, insert)
 
+import Database.Bookkeeper
 import Database.Generic
 import Database.Query
 

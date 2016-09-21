@@ -15,6 +15,7 @@ module Database.Bookkeeper where
 import Control.Monad.Trans
 
 import Bookkeeper
+import Bookkeeper.Permissions
 import Bookkeeper.Internal
 
 import Data.Type.Bool
@@ -48,6 +49,18 @@ type PersonB = Book
    , "nested" :=> (Book
      '[ "bff" :=> Bool ])
    ]
+
+instance (A.FromJSON a) => A.FromJSON (Permission (prf ) a)
+instance (A.ToJSON a)   => A.ToJSON (Permission (prf :: [Map.Mapping Symbol *]) a)
+
+instance (PS.ToField a) => PS.ToField (Permission (prf :: [Map.Mapping Symbol *]) a) where
+  toField a = PS.toField (unsafeUnpackPermission a)
+
+instance (PS.FromField a) => PS.FromField (Permission (prf :: [Map.Mapping Symbol *]) a) where
+  fromField f dat = unsafePermission <$> PS.fromField f dat
+
+--------------------------------------------------------------------------------
+
 
 instance A.ToJSON (Book' '[]) where
   toJSON _ = A.Null
