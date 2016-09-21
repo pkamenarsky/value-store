@@ -213,6 +213,12 @@ data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
 
+sortOrder :: Query' (K t a) l -> SortOrder a
+sortOrder (All _ _)          = Unsorted
+sortOrder (Filter _ _ q)     = sortOrder q
+sortOrder (Sort _ _ e _ _ _) = SortBy e
+sortOrder (Join _ _ _ _)     = Unsorted
+
 data Action = Insert | Delete deriving (Eq, Show, Generic)
 
 instance A.FromJSON Action
@@ -231,7 +237,7 @@ instance Arrow (Auto st) where
 
 type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
 
-queryToNode :: Query' l (K t a) -> Node t a
+queryToNode :: Query' (K t a) l -> Node t a
 queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
   returnA -< [(action, K undefined undefined)]
 queryToNode (Filter _ f q) = proc dbvalue -> do
