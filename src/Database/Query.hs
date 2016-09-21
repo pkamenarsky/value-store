@@ -1,3 +1,4 @@
+{-# LANGUAGE Arrows #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -19,6 +20,8 @@
 
 module Database.Query where
 
+import Control.Arrow
+import qualified Control.Category as C
 import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict
 import Control.Concurrent
@@ -217,7 +220,24 @@ instance A.ToJSON Action
 
 data Auto st i o = Auto st (i -> (o, (Auto st i o)))
 
+instance C.Category (Auto st) where
+  {-
+  id = auto
+    where auto = Auto mempty (\a -> (a, auto))
+  (Auto st1 f) . (Auto st2 g) = Auto undefined undefined
+  -}
+
+instance Arrow (Auto st) where
+
 type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
+
+queryToNode :: Query' l (K t a) -> Node t a
+queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
+  returnA -< [(action, K undefined undefined)]
+queryToNode (Filter _ f q) = proc dbvalue -> do
+  ts <- node -< dbvalue
+  returnA -< ts
+  where node = queryToNode q
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
