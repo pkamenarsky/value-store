@@ -24,6 +24,7 @@ library
                      , Database.Query
                      , Database.Generic
                      , Database.Bookkeeper
+                     , Database.Map
                      , Database.Examples
   -- other-modules:       
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric

@@ -17,6 +17,7 @@ import Data.Typeable
 
 import Database.Bookkeeper
 import Database.Generic
+import Database.Map
 import Database.Query
 import qualified Database.PostgreSQL.Simple as PS
 
