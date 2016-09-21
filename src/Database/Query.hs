@@ -348,6 +348,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
   return (Sort l cache' expr offset limit qc, SortBy expr, as')
   where
     go expr cache [] = return (cache, [])
+    {-
     go expr cache ((Insert, a):as)
       | cache' <- Ix.insert (key a) (unK a) cache
       , Just i' <- Ix.elemIndex (key a) cache'
@@ -363,6 +364,7 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
       | otherwise = do
           (cache', as'') <- go expr cache as
           return (cache', (Delete, a):as'')
+    -}
 passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr
@@ -406,14 +408,16 @@ fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
   return (Filter l a q')
-fillCaches conn qq@(Sort l _ b offset limit q) = do
+fillCaches conn qq@(Sort l _ expr offset limit q) = do
   cache <- case limit of
     Just _  -> do
-      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-      return rs
-    Nothing -> return []
+      -- FIXME: call fillCaches first
+      -- rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+      rs <- undefined
+      return $ Ix.fromList (map (\a -> (key a, unK a)) rs) (comparing (foldExpr expr))
+    Nothing -> return $ Ix.empty (comparing (foldExpr expr))
   q' <- fillCaches conn q
-  return (Sort l cache b offset limit q')
+  return (Sort l cache expr offset limit q')
 fillCaches conn (Join l a ql qr) = do
   ql' <- fillCaches conn ql
   qr' <- fillCaches conn qr

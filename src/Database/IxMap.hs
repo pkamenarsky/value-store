@@ -7,6 +7,7 @@ module Database.IxMap
   , lookup
   , take
   , elemIndex
+  , fromList
   , toList
   ) where
 
@@ -40,6 +41,9 @@ elemIndex k m = L.elemIndex k $ map fst $ toList m
 
 take :: Int -> IxMap k a -> IxMap k a
 take n (IxMap as sort limit) = IxMap as sort (min n limit)
+
+fromList :: Ord k => [(k, a)] -> (a -> a -> Ordering) -> IxMap k a
+fromList as sort = IxMap (M.fromList as) sort maxBound
 
 toList :: IxMap k a -> [(k, a)]
 toList (IxMap as sort limit) = P.take limit $ L.sortBy (sort `on` snd) $ M.toList as
