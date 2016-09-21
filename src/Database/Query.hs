@@ -204,7 +204,7 @@ newtype Key a = Key String deriving Show
 data Query' a l where
   All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
   Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (KP a) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (KP t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -348,7 +348,6 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
   return (Sort l cache' expr offset limit qc, SortBy expr, as')
   where
     go expr cache [] = return (cache, [])
-    {-
     go expr cache ((Insert, a):as)
       | cache' <- Ix.insert (key a) (unK a) cache
       , Just i' <- Ix.elemIndex (key a) cache'
@@ -358,13 +357,12 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
       | otherwise = go expr cache as
     go expr cache ((Delete, a):as)
       | Just _ <- Ix.lookup (key a) cache = do
-          as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + length cache - 1) limit q)
+          as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
           (cache', as'') <- go expr (Ix.delete (key a) cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
           return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
       | otherwise = do
           (cache', as'') <- go expr cache as
           return (cache', (Delete, a):as'')
-    -}
 passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
   (qcl, _, rl) <- passesQuery conn row ql
   (qcr, _, rr) <- passesQuery conn row qr

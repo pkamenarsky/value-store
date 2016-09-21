@@ -9,6 +9,7 @@ module Database.IxMap
   , elemIndex
   , fromList
   , toList
+  , size
   ) where
 
 import Data.Function
@@ -47,3 +48,6 @@ fromList as sort = IxMap (M.fromList as) sort maxBound
 
 toList :: IxMap k a -> [(k, a)]
 toList (IxMap as sort limit) = P.take limit $ L.sortBy (sort `on` snd) $ M.toList as
+
+size :: IxMap k a -> Int
+size (IxMap as _ limit) = min (M.size as) limit
