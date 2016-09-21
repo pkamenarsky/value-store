@@ -215,6 +215,10 @@ data Action = Insert | Delete deriving (Eq, Show, Generic)
 instance A.FromJSON Action
 instance A.ToJSON Action
 
+data Auto st i o = Auto st (i -> (o, (Auto st i o)))
+
+type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
+
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
 -- a delete happens, Join (or something else) expects data to be there.
