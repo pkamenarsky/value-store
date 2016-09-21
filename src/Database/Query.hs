@@ -95,17 +95,11 @@ newtype Key a = Key String deriving Show
 
 --------------------------------------------------------------------------------
 
-data Query' a l where
-  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (KP t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
-  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
-
-deriving instance (Show l, Show a) => Show (Query' a l)
-
-type Query a = Query' a ()
-type LQuery a = Query' a String
-type CQuery a = Query' a String
+data Query' a where
+  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => Row -> Query' (K (Key a) a)
+  Filter :: PS.FromRow (K t a) => Expr a Bool -> Query' (K t a) -> Query' (K t a)
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) -> Query' (K t a)
+  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query' (K t a) -> Query' (K u b) -> Query' (K (t :. u) (a :. b))
 
 {-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
