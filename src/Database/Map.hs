@@ -38,6 +38,8 @@ import GHC.Generics
 
 import Debug.Trace
 
+{-
+
 insertRow :: forall a. (Show a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
@@ -105,4 +107,4 @@ modifyRow conn prf (Key key) f = do
   let a' = from . f . to $ unK a
   print a'
   insertRow conn key a'
-
+-}

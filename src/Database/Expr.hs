@@ -33,7 +33,10 @@ lookupVar ctx name =
     []                  -> error "No such var"
     _                   -> error "More than one var"
 
-class ToExpr r a where
+-- NOTE: if we need to restrict the type of certain subexpressions, add a
+-- phantom type, i.e.
+-- data Expr tp r a where
+--   Fld  :: String -> (r -> a) -> Expr Field r a
 
 data Expr r a where
   (:+:) :: Expr a b -> Expr b c -> Expr a c

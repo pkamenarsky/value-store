@@ -83,6 +83,8 @@ personE = Fld "person" (Just . _person)
 streetE :: Expr (Address) String
 streetE = Fld "street" (Just . _street)
 
+{-
+
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
 qr :: Query (K (Key Person) Person)
 qr = all
@@ -217,5 +219,4 @@ testSort = do
 
     killThread tid
   -}
-
---------------------------------------------------------------------------------
+-}

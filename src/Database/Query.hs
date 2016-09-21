@@ -68,10 +68,7 @@ import Database.Generic
 
 import Debug.Trace
 
--- NOTE: if we need to restrict the type of certain subexpressions, add a
--- phantom type, i.e.
--- data Expr tp r a where
---   Fld  :: String -> (r -> a) -> Expr Field r a
+data Row = Row String [String] deriving Show
 
 -- data KP = KP String | SP KP KP | WP
 data KP t where
@@ -94,40 +91,9 @@ WP     `cmpKP` _        = True
 SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
 _      `cmpKP` _        = error "Keys not structurally equivalent"
 
-{-
-instance Fields a => PS.ToRow (K t a) where
-  toRow a = PS.Escape (B.pack k):PS.toRow v
-    where K (KP k) v = a
--}
-
-instance Fields a => PS.FromRow (K (Key a) a) where
-  fromRow = do
-    k <- PS.field
-    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    return $ K (KP k) a
-
-instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
-  fromRow = do
-    a <- PS.fromRow
-    b <- PS.fromRow
-    return $ K (SP (key a) (key b)) (unK a :. unK b)
-
-instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
-  toRow v = map snd $ flattenObject "" $ fields (Just v)
-
-instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
-  fromRow = do
-    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    return a
-
-instance Show (IORef a) where
-  show _ = "IORef _"
-
-data Row = Row String [String] deriving Show
-
-data DBValue = DBValue Action String A.Value
-
 newtype Key a = Key String deriving Show
+
+--------------------------------------------------------------------------------
 
 data Query' a l where
   All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
@@ -141,6 +107,7 @@ type Query a = Query' a ()
 type LQuery a = Query' a String
 type CQuery a = Query' a String
 
+{-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
 all = All () (Row table' kvs)
   where
@@ -205,6 +172,37 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 --------------------------------------------------------------------------------
+
+{-
+instance Fields a => PS.ToRow (K t a) where
+  toRow a = PS.Escape (B.pack k):PS.toRow v
+    where K (KP k) v = a
+-}
+
+instance Fields a => PS.FromRow (K (Key a) a) where
+  fromRow = do
+    k <- PS.field
+    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
+    return $ K (KP k) a
+
+instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
+  fromRow = do
+    a <- PS.fromRow
+    b <- PS.fromRow
+    return $ K (SP (key a) (key b)) (unK a :. unK b)
+
+instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
+  toRow v = map snd $ flattenObject "" $ fields (Just v)
+
+instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
+  fromRow = do
+    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
+    return a
+
+instance Show (IORef a) where
+  show _ = "IORef _"
+
+data DBValue = DBValue Action String A.Value
 
 data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
@@ -341,4 +339,4 @@ query conn q cb = do
           cb rs'
           go q' rs'
         Nothing -> go q rs
-
+-}
