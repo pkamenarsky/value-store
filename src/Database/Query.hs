@@ -226,6 +226,9 @@ instance A.ToJSON Action
 
 data Auto st i o = Auto st (i -> (o, (Auto st i o)))
 
+withState' :: st -> Auto st i o -> Auto st i o
+withState' = undefined
+
 instance C.Category (Auto st) where
   {-
   id = auto
@@ -240,7 +243,7 @@ type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
 queryToNode :: Query' (K t a) l -> Node t a
 queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
   returnA -< [(action, K undefined undefined)]
-queryToNode (Filter _ f q) = proc dbvalue -> do
+queryToNode (Filter _ f q) = withState' undefined $ proc dbvalue -> do
   ts <- node -< dbvalue
   returnA -< ts
   where node = queryToNode q
