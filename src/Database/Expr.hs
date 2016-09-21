@@ -1,9 +1,12 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Database.Expr where
 
+import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict
 import qualified Data.List        as L
 
@@ -43,6 +46,11 @@ data Expr r a where
   Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
   Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
 
+instance Show (a -> Maybe b) where
+  show _ = "(a -> Maybe b)"
+
+deriving instance Show (Expr r a)
+
 foldExprSql :: Ctx -> Expr r a -> String
 -- TODO: FIXME
 foldExprSql ctx (Cnst a) = "'" ++ (L.filter (/= '\"') $ show a) ++ "'"
@@ -55,3 +63,39 @@ foldExprSql ctx (And a b) = brackets $ foldExprSql ctx a ++ " and " ++ foldExprS
 foldExprSql ctx (Grt a b) = brackets $ foldExprSql ctx a ++ " > " ++ foldExprSql ctx b
 foldExprSql ctx (Eqs a b) = brackets $ foldExprSql ctx a ++ " = " ++ foldExprSql ctx b
 foldExprSql ctx (Plus a b) = brackets $ foldExprSql ctx a ++ " + " ++ foldExprSql ctx b
+
+substFst :: Expr (l :. r) a -> l -> Maybe (Expr r a)
+substFst (Cnst a) sub = Just $ Cnst a
+substFst (Fld _ _) sub = error "Invalid field access"
+substFst (_ :+: _ ) sub = error "Invalid field access"
+substFst (Fst f) sub = Cnst <$> foldExpr f sub
+substFst (Snd f) sub = Just f
+substFst (And ql qr) sub  = And  <$> substFst ql sub <*> substFst qr sub
+substFst (Grt ql qr) sub  = Grt  <$> substFst ql sub <*> substFst qr sub
+substFst (Eqs ql qr) sub  = Eqs  <$> substFst ql sub <*> substFst qr sub
+substFst (Plus ql qr) sub = Plus <$> substFst ql sub <*> substFst qr sub
+
+substSnd :: Expr (l :. r) a -> r -> Maybe (Expr l a)
+substSnd (Cnst a) sub = Just $ Cnst a
+substSnd (Fld _ _) sub = error "Invalid field access"
+substSnd (_ :+: _ ) sub = error "Invalid field access"
+substSnd (Fst f) sub = Just f
+substSnd (Snd f) sub = Cnst <$> foldExpr f sub
+substSnd (And ql qr) sub  = And  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Grt ql qr) sub  = Grt  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Eqs ql qr) sub  = Eqs  <$> (substSnd ql sub) <*> (substSnd qr sub)
+substSnd (Plus ql qr) sub = Plus <$> (substSnd ql sub) <*> (substSnd qr sub)
+
+foldExpr :: Expr r a -> (r -> Maybe a)
+foldExpr (Cnst a) = const $ Just a
+foldExpr (Fld _ get) = get
+foldExpr (f :+: g) = foldExpr g <=< foldExpr f
+foldExpr (Fst f) = \(r :. _) -> foldExpr f r
+foldExpr (Snd f) = \(_ :. r) -> foldExpr f r
+foldExpr (And a b) = \r -> (&&) <$> foldExpr a r <*> foldExpr b r
+foldExpr (Grt a b) = \r -> (>)  <$> foldExpr a r <*> foldExpr b r
+foldExpr (Eqs a b) = \r -> (==) <$> foldExpr a r <*> foldExpr b r
+foldExpr (Plus a b) = \r -> (+) <$> foldExpr a r <*> foldExpr b r
+
+keyE :: Expr a String
+keyE = Fld "key" (error "keyE can be used only live")

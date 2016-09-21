@@ -16,6 +16,7 @@ import qualified Data.List        as L
 import Data.Typeable
 
 import Database.Bookkeeper
+import Database.Expr
 import Database.Generic
 import Database.Map
 import Database.Query
