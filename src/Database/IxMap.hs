@@ -4,35 +4,42 @@ module Database.IxMap
   , empty
   , delete
   , insert
+  , lookup
+  , take
+  , elemIndex
+  , toList
   ) where
 
-data IxMap a = IxMap [a] (a -> a -> Ordering) (a -> a -> Ordering)
+import Data.Function
 
-instance Show a => Show (IxMap a) where
+import qualified Data.Map as M
+import qualified Data.List as L
+
+import Prelude hiding (take, lookup)
+import qualified Prelude as P
+
+data IxMap k a = IxMap (M.Map k a) (a -> a -> Ordering) Int
+
+instance (Show k, Show a) => Show (IxMap k a) where
   show (IxMap as _ _) = show as
 
-empty :: (a -> a -> Ordering) -> (a -> a -> Ordering) -> IxMap a
-empty key sort = IxMap [] key sort
+empty :: (a -> a -> Ordering) -> IxMap k a
+empty sort = IxMap M.empty sort maxBound
 
-deleteByKey :: (a -> Bool) -> [a] -> [a]
-deleteByKey f [] = []
-deleteByKey f (x:xs)
-  | f x = deleteByKey f xs
-  | otherwise = x:deleteByKey f xs
+delete :: Ord k => k -> IxMap k a -> IxMap k a
+delete k (IxMap as sort limit) = IxMap (M.delete k as) sort limit
 
-delete :: a -> IxMap a -> IxMap a
-delete a (IxMap as key sort) = IxMap (deleteByKey ((EQ ==) . key a) as) key sort
+insert :: Ord k => k -> a -> IxMap k a -> IxMap k a
+insert k a (IxMap as sort limit) = IxMap (M.insert k a as) sort limit
 
-insertBy' :: (a -> a -> Ordering) -> Int -> a -> [a] -> (Int, [a])
-insertBy' _   i x [] = (i, [x])
-insertBy' cmp i x ys@(y:ys')
- = case cmp x y of
-     GT -> let (i', ys'') = insertBy' cmp (i + 1) x ys' in (i', y : ys'')
-     _  -> (i, x : ys)
+lookup :: Ord k => k -> IxMap k a -> Maybe a
+lookup k m = snd <$> (L.find ((k ==) . fst) $ toList m)
 
-insertByKey :: (a -> a -> Ordering) -> (a -> a -> Ordering) -> a -> [a] -> (Int, [a])
-insertByKey key sort x = insertBy' sort 0 x . deleteByKey ((EQ ==) . key x)
+elemIndex :: Ord k => k -> IxMap k a -> Maybe Int
+elemIndex k m = L.elemIndex k $ map fst $ toList m
 
-insert :: a -> IxMap a -> (Int, IxMap a)
-insert a (IxMap as key sort) = (i, IxMap as' key sort)
-  where (i, as') = insertByKey key sort a as
+take :: Int -> IxMap k a -> IxMap k a
+take n (IxMap as sort limit) = IxMap as sort (min n limit)
+
+toList :: IxMap k a -> [(k, a)]
+toList (IxMap as sort limit) = P.take limit $ L.sortBy (sort `on` snd) $ M.toList as

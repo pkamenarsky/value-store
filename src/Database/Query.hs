@@ -199,12 +199,12 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue Action String A.Value
 
-newtype Key a = Key String
+newtype Key a = Key String deriving Show
 
 data Query' a l where
   All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
   Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (K t a) -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
+  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (KP a) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
   Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
@@ -224,7 +224,7 @@ filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 
 sort :: (Ord b, Show a, PS.FromRow (K t a)) => Expr a b -> Maybe Int -> Maybe Int -> Query (K t a) -> Query (K t a)
-sort expr = Sort () (Ix.empty (comparing key) (comparing (foldExpr expr . unK))) expr
+sort expr = Sort () (Ix.empty (comparing (foldExpr expr))) expr
 
 join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
@@ -349,15 +349,16 @@ passesQuery conn row (Sort l cache expr offset limit q) = do
   where
     go expr cache [] = return (cache, [])
     go expr cache ((Insert, a):as)
-      | (i', cache') <- Ix.insert a cache
+      | cache' <- Ix.insert (key a) (unK a) cache
+      , Just i' <- Ix.elemIndex (key a) cache'
       , i' < fromMaybe maxBound limit = do
-          (cache'', as') <- go expr (take (fromMaybe maxBound limit) cache') as
+          (cache'', as') <- go expr (Ix.take (fromMaybe maxBound limit) cache') as
           return (cache'', (Insert, a):as')
       | otherwise = go expr cache as
     go expr cache ((Delete, a):as)
-      | Just _ <- find ((== key a) . key) cache = do
+      | Just _ <- Ix.lookup (key a) cache = do
           as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + length cache - 1) limit q)
-          (cache', as'') <- go expr (deleteAllBy (cmpKP (key a) . key) cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
+          (cache', as'') <- go expr (Ix.delete (key a) cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
           return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
       | otherwise = do
           (cache', as'') <- go expr cache as
