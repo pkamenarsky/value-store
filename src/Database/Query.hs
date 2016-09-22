@@ -303,9 +303,7 @@ queryToNode''' (Sort _ _ e offset limit q) = do
   node <- queryToNode''' q
 
   withLocalState (Ix.take (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
-    ts <- MT.lift $ node dbvalue
-    go ts
-    return []
+    MT.lift (node dbvalue) >>= go
     where
       insert a cache
         | cache' <- Ix.insert (key a) (unK a) cache
