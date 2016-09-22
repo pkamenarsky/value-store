@@ -362,6 +362,8 @@ query conn q cb = do
   cq <- fillCaches conn (labelQuery q)
   rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
 
+  -- FIXME: here we may lose data
+
   PS.execute_ conn "listen person"
 
   tid <- forkIO $ go cq rs
