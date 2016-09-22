@@ -27,6 +27,7 @@ import Control.Arrow.Transformer.Automaton
 import Control.Arrow.Transformer.State as AST
 import qualified Control.Category as C
 import Control.Monad hiding (join)
+import Control.Monad as MND
 import Control.Monad.Trans.State.Strict
 import Control.Concurrent
 import Control.Concurrent.MVar
@@ -256,35 +257,27 @@ withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
 testNode :: Node () String
-testNode = withState' (Ix.empty compare) $ proc dbv -> do
+testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
   store -< Ix.fromList [(WP, "bla")] compare
   AT.lift (AT.lift prA) -< ()
   returnA -< []
   where
-    prA :: ArrowIO (->) () ()
+    prA :: Kleisli IO () ()
     prA = proc () -> do
-      arr (\x -> putStrLn "asd") -< ()
-      returnA -< ()
+      r <- Kleisli (\x -> putStrLn x) -< "asd"
+      returnA -< r
 
 runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
 
 -- runTestNode :: _
-runTestNode = runArrowIO (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
-
-newtype ArrowIO a b c = ArrowIO { runArrowIO :: a b (IO c) }
-
-instance Arrow a => C.Category (ArrowIO a) where
-  id = ArrowIO (arr return)
-  (ArrowIO f) . (ArrowIO g) = ArrowIO (f <<< g)
-
-instance Arrow a => Arrow (ArrowIO a) where
+runTestNode = runKleisli (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
 
 -- instance ArrowTransformer IOF where
 
 type Node t a = StateArrow
                   (Ix.IxMap (KP t) a)
-                  (Automaton (ArrowIO (->)))
+                  (Automaton (Kleisli IO))
                   DBValue
                   [(Action, K t a)]
 
