@@ -70,19 +70,20 @@ import Database.Generic
 
 import Debug.Trace
 
--- data Key a = Key String | SP (Key a) (Key a) | WP
+data Row = Row String [String] deriving Show
+
+data DBValue = DBValue Action String A.Value
+
 data Key a where
   Key     :: String -> Key a
   KeyStar :: Key a
   KeyComp :: Key a -> Key b -> Key (a :. b)
 
--- deriving instance Generic (Key t)
-deriving instance Typeable (Key t)
 deriving instance Ord (Key t)
 deriving instance Show (Key t)
 
 instance Eq (Key a) where
-  (Key k1)      == (Key k2)      = k1 == k2
+  Key k1        == Key k2        = k1 == k2
   _             == KeyStar       = True
   KeyStar       == _             = True
   KeyComp k1 l1 == KeyComp k2 l2 = k1 == k2 && l1 == l2
@@ -108,13 +109,6 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return a
 
-instance Show (IORef a) where
-  show _ = "IORef _"
-
-data Row = Row String [String] deriving Show
-
-data DBValue = DBValue Action String A.Value
-
 data Query' a l where
   All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (Key a, a) l
   Filter :: (PS.FromRow (Key a, a)) => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
@@ -127,9 +121,8 @@ deriving instance Functor (Query' a)
 deriving instance Foldable (Query' a)
 deriving instance Traversable (Query' a)
 
-type Query a = Query' a ()
-type LQuery a = Query' a String
-type CQuery a = Query' a String
+type Query a  = Query' a ()
+type QueryL a = Query' a String
 
 {-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
@@ -165,7 +158,7 @@ sortOrder (Filter _ _ q)   = sortOrder q
 sortOrder (Sort _ e _ _ _) = SortBy e
 sortOrder (Join _ _ _ _)   = Unsorted
 
-labelQuery :: Query' a l -> LQuery a
+labelQuery :: Query' a l -> QueryL a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
 
 aliasColumns :: String -> Ctx -> String
@@ -176,7 +169,7 @@ aliasColumns alias ctx = concat $ intersperse ", "
   | (_, calias, col) <- ctx
   ]
 
-foldQuerySql :: LQuery a -> (String, Ctx)
+foldQuerySql :: QueryL a -> (String, Ctx)
 foldQuerySql (All l (Row row cols)) =
   ( "select " ++ aliasColumns l ([ ([], Nothing, col) | col <- cols ]) ++ " from " ++ row
   , [ ([], Just l, col) | col <- cols ]
@@ -321,7 +314,7 @@ reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKey (key 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
 
-fillCaches :: PS.Connection -> LQuery a -> IO (LQuery a)
+fillCaches :: PS.Connection -> QueryL a -> IO (QueryL a)
 fillCaches _ (All l a) = return (All l a)
 fillCaches conn (Filter l a q) = do
   q' <- fillCaches conn q
