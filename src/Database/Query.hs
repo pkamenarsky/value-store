@@ -209,21 +209,22 @@ foldQuerySql (Join l f ql qr) =
 
 -- Operational -----------------------------------------------------------------
 
-type Node a = DBValue -> IO [(Action, (Key a, a))]
+type Node a = PS.Connection -> DBValue -> IO [(Action, (Key a, a))]
 
-withLocalState :: st -> (a -> StateT st IO b) -> IO (a -> IO b)
+withLocalState :: st -> (a -> b -> StateT st IO c) -> IO (a -> b -> IO c)
 withLocalState st f = do
   stref <- newIORef st
 
-  return $ \a -> do
+  return $ \a b -> do
     st' <- readIORef stref
-    (b, st'') <- runStateT (f a) st'
+    (b, st'') <- runStateT (f a b) st'
     writeIORef stref st''
     return b
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
-queryToNode conn (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
+queryToNode conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
   return [(action, (undefined, undefined))]
+
 queryToNode conn qq@(Sort _ e offset limit q) = do
   node <- queryToNode conn q
 
@@ -233,8 +234,8 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
       return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
-  withLocalState cache $ \dbvalue -> do
-    MT.lift (node dbvalue) >>= go
+  withLocalState cache $ \conn dbvalue -> do
+    MT.lift (node conn dbvalue) >>= go
     where
       insert v@(k, a) cache
         | cache' <- Ix.insert k a cache
