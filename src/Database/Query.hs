@@ -238,16 +238,22 @@ type Node t a = StateArrow
 withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
+liftIO :: (a -> IO b) -> Automaton (Kleisli IO) a b
+liftIO f = proc a -> do
+  AT.lift prA -< a
+  where
+    prA = proc a -> do
+      Kleisli f -< a
+
 testNode :: Node () String
 testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
   store -< Ix.fromList [(WP, "bla")] compare
   AT.lift (AT.lift prA) -< ()
   returnA -< []
   where
-    prA :: Kleisli IO () ()
-    prA = proc () -> do
-      r <- Kleisli (\x -> putStrLn x) -< "asd"
-      returnA -< r
+    prA :: Show a => Kleisli IO a ()
+    prA = proc a -> do
+      Kleisli (\x -> putStrLn (show x)) -< a
 
 runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
