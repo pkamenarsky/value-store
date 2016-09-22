@@ -29,7 +29,7 @@ import Control.Arrow.Transformer.State as AST
 import qualified Control.Category as C
 import Control.Monad hiding (join)
 import Control.Monad as MND
-import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.State.Strict as ST
 import Control.Concurrent
 import Control.Concurrent.MVar
 
@@ -246,6 +246,16 @@ withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ 
 liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
 liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
 
+withLocalState :: st -> (a -> StateT st IO b) -> IO (a -> IO b)
+withLocalState st f = do
+  stref <- newIORef st
+
+  return $ \a -> do
+    st' <- readIORef stref
+    (b, st'') <- runStateT (f a) st'
+    writeIORef stref st''
+    return b
+
 testNode :: Node () String
 testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
   store -< Ix.fromList [(WP, "bla")] compare
@@ -284,6 +294,16 @@ queryToNode'' (Filter _ f q) = do
   return $ \dbvalue -> do
     ts <- node dbvalue
     return ts
+
+queryToNode''' :: Query' (K t a) l -> IO (Node'' t a)
+queryToNode''' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
+  return [(action, K undefined undefined)]
+queryToNode''' (Filter _ f q) = do
+  node  <- queryToNode''' q
+
+  withLocalState ("" :: String) $ \dbvalue -> do
+    st <- ST.get
+    return []
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
