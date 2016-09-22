@@ -30,6 +30,7 @@ import qualified Control.Category as C
 import Control.Monad hiding (join)
 import Control.Monad as MND
 import Control.Monad.Trans.State.Strict as ST
+import qualified Control.Monad.Trans as MT
 import Control.Concurrent
 import Control.Concurrent.MVar
 
@@ -298,12 +299,26 @@ queryToNode'' (Filter _ f q) = do
 queryToNode''' :: Query' (K t a) l -> IO (Node'' t a)
 queryToNode''' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, K undefined undefined)]
-queryToNode''' (Filter _ f q) = do
+queryToNode''' (Sort _ _ e offset limit q) = do
   node <- queryToNode''' q
 
-  withLocalState ("" :: String) $ \dbvalue -> do
-    st <- ST.get
+  withLocalState (Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
+    ts <- MT.lift $ node dbvalue
+    go ts
     return []
+    where
+      insert a cache
+        | cache' <- Ix.insert (key a) (unK a) cache
+        , Just i <- Ix.elemIndex (key a) cache'
+        , i < fromMaybe maxBound limit
+                    = ([(Insert, a)], Ix.take (fromMaybe maxBound limit) cache')
+        | otherwise = ([], cache)
+
+      go [] = return []
+      go ((Insert, a):as) = do
+        a'  <- ST.state (insert a)
+        as' <- go as
+        return $ a' ++ as'
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
