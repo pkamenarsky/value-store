@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -114,11 +115,17 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return a
 
+type FR a = (PS.FromRow (Key a, a))
+
 data Query' a l where
-  All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (Key a, a) l
-  Filter :: (PS.FromRow (Key a, a)) => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
-  Sort   :: (PS.FromRow (Key a, a), Ord b, Show a) => l -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
-  Join   :: (Show a, Show b, PS.FromRow (Key a, a), PS.FromRow (Key b, b), PS.FromRow (Key (a :. b), (a :. b))) => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
+  All    :: (FR a, A.FromJSON a)
+              => l -> Row -> Query' (Key a, a) l
+  Filter :: (FR a)
+              => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Sort   :: (FR a, Ord b, Show a)
+              => l -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Join   :: (Show a, Show b, FR a, FR b, FR (a :. b))
+              => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
