@@ -70,47 +70,42 @@ import Database.Generic
 
 import Debug.Trace
 
--- NOTE: if we need to restrict the type of certain subexpressions, add a
--- phantom type, i.e.
--- data Expr tp r a where
---   Fld  :: String -> (r -> a) -> Expr Field r a
+-- data Key a = Key String | SP (Key a) (Key a) | WP
+data Key a where
+  Key     :: String -> Key a
+  KeyStar :: Key a
+  KeyComp :: Key a -> Key b -> Key (a :. b)
 
--- data KP = KP String | SP KP KP | WP
-data KP t where
-  KP :: String -> KP (Key a)
-  WP :: KP t
-  SP :: KP t -> KP u -> KP (t :. u)
+-- deriving instance Generic (Key t)
+deriving instance Typeable (Key t)
+deriving instance Eq (Key t)
+deriving instance Ord (Key t)
+deriving instance Show (Key t)
 
--- deriving instance Generic (KP t)
-deriving instance Typeable (KP t)
-deriving instance Eq (KP t)
-deriving instance Ord (KP t)
-deriving instance Show (KP t)
-
-cmpKP :: KP t -> KP t -> Bool
-KP k   `cmpKP` KP k'    = k == k'
-_      `cmpKP` WP       = True
-WP     `cmpKP` _        = True
-SP k l `cmpKP` SP k' l' = k `cmpKP` k' && l `cmpKP` l'
-_      `cmpKP` _        = error "Keys not structurally equivalent"
+cmpKey :: Key t -> Key t -> Bool
+Key k       `cmpKey` Key k'        = k == k'
+_           `cmpKey` KeyStar       = True
+KeyStar     `cmpKey` _             = True
+KeyComp k l `cmpKey` KeyComp k' l' = k `cmpKey` k' && l `cmpKey` l'
+_           `cmpKey` _             = error "Keys not structurally equivalent"
 
 {-
 instance Fields a => PS.ToRow (K t a) where
   toRow a = PS.Escape (B.pack k):PS.toRow v
-    where K (KP k) v = a
+    where K (Key k) v = a
 -}
 
-instance Fields a => PS.FromRow (KP (Key a), a) where
+instance Fields a => PS.FromRow (Key a, a) where
   fromRow = do
     k <- PS.field
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    return (KP k, a)
+    return (Key k, a)
 
-instance (PS.FromRow (KP t, a), PS.FromRow (KP u, b)) => PS.FromRow (KP (t :. u), (a :. b)) where
+instance (PS.FromRow (Key a, a), PS.FromRow (Key b, b)) => PS.FromRow (Key (a :. b), (a :. b)) where
   fromRow = do
     (k, a) <- PS.fromRow
     (l, b) <- PS.fromRow
-    return (SP k l, (a :. b))
+    return (KeyComp k l, (a :. b))
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
@@ -127,13 +122,11 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue Action String A.Value
 
-newtype Key a = Key String deriving Show
-
 data Query' a l where
-  All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (KP (Key a), a) l
-  Filter :: PS.FromRow (KP t, a) => l -> Expr a Bool -> Query' (KP t, a) l -> Query' (KP t, a) l
-  Sort   :: (PS.FromRow (KP t, a), Ord b, Show a) => l -> Ix.IxMap (KP t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (KP t, a) l -> Query' (KP t, a) l
-  Join   :: (Show a, Show b, PS.FromRow (KP t, a), PS.FromRow (KP u, b), PS.FromRow (KP (t :. u), (a :. b))) => l -> Expr (a :. b) Bool -> Query' (KP t, a) l -> Query' (KP u, b) l -> Query' (KP (t :. u), (a :. b)) l
+  All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (Key a, a) l
+  Filter :: PS.FromRow (Key a, a) => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Sort   :: (PS.FromRow (Key t, a), Ord b, Show a) => l -> Ix.IxMap (Key t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Join   :: (Show a, Show b, PS.FromRow (Key a, a), PS.FromRow (Key b, b), PS.FromRow (Key (a :. b), (a :. b))) => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
@@ -233,9 +226,9 @@ withLocalState st f = do
     writeIORef stref st''
     return b
 
-type Node t a = DBValue -> IO [(Action, (KP t, a))]
+type Node a = DBValue -> IO [(Action, (Key a, a))]
 
-queryToNode :: Query' (KP t, a) l -> IO (Node t a)
+queryToNode :: Query' (Key a, a) l -> IO (Node a)
 queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, (undefined, undefined))]
 queryToNode (Sort _ _ e offset limit q) = do
@@ -265,9 +258,9 @@ passesQuery :: PS.Connection
             -> CQuery (K t a)
             -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
 passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
-  | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) a)])
+  | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (Key k) a)])
   -- FIXME: parsing
-  | r == r', action == Delete, A.Success k <- A.fromJSON value = return (qq, Unsorted, [(action, K (KP k) undefined)])
+  | r == r', action == Delete, A.Success k <- A.fromJSON value = return (qq, Unsorted, [(action, K (Key k) undefined)])
   | otherwise = return (qq, Unsorted, [])
 passesQuery conn row qq@(Filter l f q) = do
   (qc, so, as) <- passesQuery conn row q
@@ -330,7 +323,7 @@ passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u
 reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = undefined -- snd $ insertByKey (\_ _ -> LT) key a as
 reconcile' (SortBy expr) (Insert, a) as = undefined -- snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
-reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKP (key a) . key) as
+reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKey (key a) . key) as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
@@ -355,7 +348,7 @@ fillCaches conn (Join l a ql qr) = do
 
 deriving instance Show PS.Notification
 
-query__ :: (Show a, PS.FromRow (KP t, a)) => PS.Connection -> Query (K t a) -> IO [(KP t, a)]
+query__ :: (Show a, PS.FromRow (Key t, a)) => PS.Connection -> Query (K t a) -> IO [(Key t, a)]
 query__ conn q = do
   cq <- fillCaches conn (labelQuery q)
   PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
