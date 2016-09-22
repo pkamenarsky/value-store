@@ -229,29 +229,11 @@ data Action = Insert | Delete deriving (Eq, Show, Generic)
 instance A.FromJSON Action
 instance A.ToJSON Action
 
-data Auto st i o = Auto (i -> (o, (Auto st i o)))
-
-data Auto' st i o = Auto' st ((i, st) -> (o, st))
-
---withState' :: st -> Auto st i o -> Auto st i o
---withState' = undefined
-
-instance C.Category (Auto' (Maybe (Ix.IxMap a b))) where
-  id = Auto' Nothing id
-  (Auto' st1 f) . (Auto' st2 g) = Auto' undefined (f . g)
-
-instance C.Category (Auto st) where
-  {-
-  id = auto
-    where auto = Auto mempty (\a -> (a, auto))
-  (Auto st1 f) . (Auto st2 g) = Auto undefined undefined
-  -}
-
-instance Arrow (Auto st) where
-
-instance ArrowState (Ix.IxMap a b) (Auto (Ix.IxMap a b)) where
-
--- type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
+type Node t a = StateArrow
+                  (Ix.IxMap (KP t) a)
+                  (Automaton (Kleisli IO))
+                  DBValue
+                  [(Action, K t a)]
 
 withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
@@ -272,14 +254,6 @@ runStep (Automaton f) = f
 
 -- runTestNode :: _
 runTestNode = runKleisli (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
-
--- instance ArrowTransformer IOF where
-
-type Node t a = StateArrow
-                  (Ix.IxMap (KP t) a)
-                  (Automaton (Kleisli IO))
-                  DBValue
-                  [(Action, K t a)]
 
 queryToNode :: Query' (K t a) l -> Node t a
 queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
