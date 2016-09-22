@@ -221,13 +221,19 @@ withLocalState st f = do
     writeIORef stref st''
     return b
 
-queryToNode :: Query' (Key a, a) l -> IO (Node a)
-queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
+queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
+queryToNode conn (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, (undefined, undefined))]
-queryToNode (Sort _ e offset limit q) = do
-  node <- queryToNode q
+queryToNode conn qq@(Sort _ e offset limit q) = do
+  node <- queryToNode conn q
 
-  withLocalState (Ix.limit (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
+  cache <- case limit of
+    Just limit -> do
+      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+      return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
+    Nothing    -> return $ Ix.empty (comparing (foldExpr e))
+
+  withLocalState cache $ \dbvalue -> do
     MT.lift (node dbvalue) >>= go
     where
       insert v@(k, a) cache
