@@ -88,12 +88,6 @@ instance Eq (Key a) where
   KeyComp k1 l1 == KeyComp k2 l2 = k1 == k2 && l1 == l2
   _             == _             = False
 
-{-
-instance Fields a => PS.ToRow (K t a) where
-  toRow a = PS.Escape (B.pack k):PS.toRow v
-    where K (Key k) v = a
--}
-
 instance Fields a => PS.FromRow (Key a, a) where
   fromRow = do
     k <- PS.field
@@ -123,11 +117,15 @@ data DBValue = DBValue Action String A.Value
 
 data Query' a l where
   All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (Key a, a) l
-  Filter :: PS.FromRow (Key a, a) => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
-  Sort   :: (PS.FromRow (Key t, a), Ord b, Show a) => l -> Ix.IxMap (Key t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Filter :: (PS.FromRow (Key a, a)) => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
+  Sort   :: (PS.FromRow (Key a, a), Ord b, Show a) => l -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
   Join   :: (Show a, Show b, PS.FromRow (Key a, a), PS.FromRow (Key b, b), PS.FromRow (Key (a :. b), (a :. b))) => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
+
+deriving instance Functor (Query' a)
+deriving instance Foldable (Query' a)
+deriving instance Traversable (Query' a)
 
 type Query a = Query' a ()
 type LQuery a = Query' a String
@@ -152,14 +150,20 @@ join = Join ()
 -}
 
 queryLabel :: Query' a l -> l
-queryLabel (All l _) = l
-queryLabel (Filter l _ _) = l
-queryLabel (Sort l _ _ _ _ _) = l
-queryLabel (Join l _ _ _) = l
+queryLabel (All l _)        = l
+queryLabel (Filter l _ _)   = l
+queryLabel (Sort l _ _ _ _) = l
+queryLabel (Join l _ _ _)   = l
 
-deriving instance Functor (Query' a)
-deriving instance Foldable (Query' a)
-deriving instance Traversable (Query' a)
+data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
+
+deriving instance Show (SortOrder a)
+
+sortOrder :: Query' (t, a) l -> SortOrder a
+sortOrder (All _ _)        = Unsorted
+sortOrder (Filter _ _ q)   = sortOrder q
+sortOrder (Sort _ e _ _ _) = SortBy e
+sortOrder (Join _ _ _ _)   = Unsorted
 
 labelQuery :: Query' a l -> LQuery a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
@@ -182,7 +186,7 @@ foldQuerySql (Filter l f q) =
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
   where (q', ctx) = foldQuerySql q
-foldQuerySql (Sort l _ f offset limit q) =
+foldQuerySql (Sort l f offset limit q) =
   ( "select " ++ aliasColumns l ctx ++ " from (" ++ q' ++ ") " ++ queryLabel q ++ " order by " ++ foldExprSql ctx f  ++ maybe "" ((" limit " ++) . show) limit ++ maybe "" ((" offset " ++) . show) offset
   , [ (p, Just $ maybe l (\a -> l ++ "_" ++ a) a, v) | (p, a, v) <- ctx ]
   )
@@ -199,16 +203,6 @@ foldQuerySql (Join l f ql qr) =
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
 --------------------------------------------------------------------------------
-
-data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
-
-deriving instance Show (SortOrder a)
-
-sortOrder :: Query' (t, a) l -> SortOrder a
-sortOrder (All _ _)          = Unsorted
-sortOrder (Filter _ _ q)     = sortOrder q
-sortOrder (Sort _ _ e _ _ _) = SortBy e
-sortOrder (Join _ _ _ _)     = Unsorted
 
 data Action = Insert | Delete deriving (Eq, Show, Generic)
 
@@ -230,7 +224,7 @@ type Node a = DBValue -> IO [(Action, (Key a, a))]
 queryToNode :: Query' (Key a, a) l -> IO (Node a)
 queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, (undefined, undefined))]
-queryToNode (Sort _ _ e offset limit q) = do
+queryToNode (Sort _ e offset limit q) = do
   node <- queryToNode q
 
   withLocalState (Ix.take (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
