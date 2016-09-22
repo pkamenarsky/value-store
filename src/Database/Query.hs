@@ -299,7 +299,7 @@ queryToNode''' :: Query' (K t a) l -> IO (Node'' t a)
 queryToNode''' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, K undefined undefined)]
 queryToNode''' (Filter _ f q) = do
-  node  <- queryToNode''' q
+  node <- queryToNode''' q
 
   withLocalState ("" :: String) $ \dbvalue -> do
     st <- ST.get
