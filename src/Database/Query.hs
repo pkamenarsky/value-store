@@ -115,7 +115,7 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return a
 
-type FR a = (PS.FromRow (Key a, a))
+type FR a = PS.FromRow (Key a, a)
 
 data Query' a l where
   All    :: (FR a, A.FromJSON a)
