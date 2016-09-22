@@ -238,6 +238,8 @@ type Node t a = StateArrow
 
 type Node' t a = Auto.Auto IO DBValue [(Action, K t a)]
 
+type Node'' t a = DBValue -> IO [(Action, K t a)]
+
 withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
@@ -273,6 +275,15 @@ queryToNode (Filter _ f q) = proc dbvalue -> do
   -- r <- AT.lift (AT.lift prA) -< ()
   returnA -< ts
   where node = queryToNode q
+
+queryToNode'' :: Query' (K t a) l -> IO (Node'' t a)
+queryToNode'' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
+  return [(action, K undefined undefined)]
+queryToNode'' (Filter _ f q) = do
+  node <- queryToNode'' q
+  return $ \dbvalue -> do
+    ts <- node dbvalue
+    return ts
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
