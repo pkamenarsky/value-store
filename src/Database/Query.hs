@@ -22,6 +22,7 @@ module Database.Query where
 
 import Control.Arrow
 import Control.Arrow.Operations
+import Control.Arrow.Transformer as AT
 import Control.Arrow.Transformer.Automaton
 import Control.Arrow.Transformer.State as AST
 import qualified Control.Category as C
@@ -252,22 +253,36 @@ instance ArrowState (Ix.IxMap a b) (Auto (Ix.IxMap a b)) where
 -- type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
 
 withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
-withState' st (StateArrow (Automaton f)) = StateArrow (Automaton $ \(b, _) -> f (b, st))
+withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
 testNode :: Node () String
-testNode = withState' (Ix.empty compare) $ proc (DBValue _ _ _) -> do
+testNode = withState' (Ix.empty compare) $ proc dbv -> do
   store -< Ix.fromList [(WP, "bla")] compare
+  AT.lift (AT.lift prA) -< ()
   returnA -< []
+  where
+    prA :: IOF () ()
+    prA = proc () -> do
+      arr (\x -> putStrLn "asd") -< ()
+      returnA -< ()
 
-runStep :: Automaton (->) a b -> (a -> (b, Automaton (->) a b))
+runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
 
 -- runTestNode :: _
-runTestNode = fst $ runStep (AST.runState testNode) (undefined, Ix.empty compare)
+runTestNode = runIOF (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
+
+newtype IOF a b = IOF { runIOF :: a -> IO b }
+
+instance C.Category IOF where
+
+instance Arrow IOF where
+
+-- instance ArrowTransformer IOF where
 
 type Node t a = StateArrow
                   (Ix.IxMap (KP t) a)
-                  (Automaton (->))
+                  (Automaton IOF)
                   DBValue
                   [(Action, K t a)]
 
@@ -278,8 +293,13 @@ queryToNode (Filter _ f q) = proc dbvalue -> do
   ts <- node -< dbvalue
   a <- fetch -< ()
   store -< a
+  AT.lift (AT.lift prA) -< ()
   returnA -< ts
   where node = queryToNode q
+        prA :: IOF () ()
+        prA = proc () -> do
+          arr (\x -> putStrLn "asd") -< ()
+          returnA -< ()
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
