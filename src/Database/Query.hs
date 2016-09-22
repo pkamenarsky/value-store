@@ -239,11 +239,7 @@ withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
 liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
-liftIO f = proc a -> do
-  AT.lift (AT.lift prA) -< a
-  where
-    prA = proc a -> do
-      Kleisli f -< a
+liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
 
 testNode :: Node () String
 testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
