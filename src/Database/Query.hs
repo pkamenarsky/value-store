@@ -220,14 +220,13 @@ queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
 queryToNode (Sort _ e offset limit q) = do
   node <- queryToNode q
 
-  withLocalState (Ix.take (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
+  withLocalState (Ix.limit (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
     MT.lift (node dbvalue) >>= go
     where
       insert v@(k, a) cache
         | cache' <- Ix.insert k a cache
-        , Just i <- Ix.elemIndex k cache'
-        , i < fromMaybe maxBound limit = ([(Insert, v)], cache')
-        | otherwise                    = ([], cache)
+        , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
+        | otherwise                       = ([], cache)
 
       go [] = return []
       go ((Insert, a):as) = do

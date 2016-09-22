@@ -5,7 +5,7 @@ module Database.IxMap
   , delete
   , insert
   , lookup
-  , take
+  , limit
   , elemIndex
   , fromList
   , toList
@@ -38,10 +38,13 @@ lookup :: Ord k => k -> IxMap k a -> Maybe a
 lookup k m = snd <$> (L.find ((k ==) . fst) $ toList m)
 
 elemIndex :: Ord k => k -> IxMap k a -> Maybe Int
-elemIndex k m = L.elemIndex k $ map fst $ toList m
+elemIndex k m@(IxMap _ _ limit)
+  | Just i <- L.elemIndex k $ map fst $ toList m
+  , i < limit = Just i
+  | otherwise = Nothing
 
-take :: Int -> IxMap k a -> IxMap k a
-take n (IxMap as sort limit) = IxMap as sort (min n limit)
+limit :: Int -> IxMap k a -> IxMap k a
+limit n (IxMap as sort limit) = IxMap as sort (min n limit)
 
 fromList :: Ord k => [(k, a)] -> (a -> a -> Ordering) -> IxMap k a
 fromList as sort = IxMap (M.fromList as) sort maxBound
