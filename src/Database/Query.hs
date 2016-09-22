@@ -74,6 +74,11 @@ data Row = Row String [String] deriving Show
 
 data DBValue = DBValue Action String A.Value
 
+data Action = Insert | Delete deriving (Eq, Show, Generic)
+
+instance A.FromJSON Action
+instance A.ToJSON Action
+
 data Key a where
   Key     :: String -> Key a
   KeyStar :: Key a
@@ -195,12 +200,9 @@ foldQuerySql (Join l f ql qr) =
         ctx'' = [ (F:p, a, v) | (p, a, v) <- ctxl ]
              ++ [ (S:p, a, v) | (p, a, v) <- ctxr ]
 
---------------------------------------------------------------------------------
+-- Operational -----------------------------------------------------------------
 
-data Action = Insert | Delete deriving (Eq, Show, Generic)
-
-instance A.FromJSON Action
-instance A.ToJSON Action
+type Node a = DBValue -> IO [(Action, (Key a, a))]
 
 withLocalState :: st -> (a -> StateT st IO b) -> IO (a -> IO b)
 withLocalState st f = do
@@ -211,8 +213,6 @@ withLocalState st f = do
     (b, st'') <- runStateT (f a) st'
     writeIORef stref st''
     return b
-
-type Node a = DBValue -> IO [(Action, (Key a, a))]
 
 queryToNode :: Query' (Key a, a) l -> IO (Node a)
 queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
