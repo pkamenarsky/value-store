@@ -1,3 +1,11 @@
 * optimize data structures
 * merge queries
   * i.e. merge limits / offsets
+* cache requests inside a transaction i.e. turn
+    insert k v
+    v <- quert k
+  into only one insert when the transaction is commited (is this actually right?)
+* from https://www.postgresql.org/docs/9.1/static/transaction-iso.html
+  * Declare transactions as READ ONLY when possible.
+  * Control the number of active connections, using a connection pool if needed.
+

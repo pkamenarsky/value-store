@@ -102,6 +102,18 @@ instance Fields a => PS.ToRow (K t a) where
     where K (KP k) v = a
 -}
 
+instance Fields a => PS.FromRow (KP (Key a), a) where
+  fromRow = do
+    k <- PS.field
+    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
+    return (KP k, a)
+
+instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (KP (t :. u), (a :. b)) where
+  fromRow = do
+    a <- PS.fromRow
+    b <- PS.fromRow
+    return (SP (key a) (key b), (unK a :. unK b))
+
 instance Fields a => PS.FromRow (K (Key a) a) where
   fromRow = do
     k <- PS.field
@@ -353,6 +365,11 @@ fillCaches conn (Join l a ql qr) = do
   return (Join l a ql' qr')
 
 deriving instance Show PS.Notification
+
+query__ :: (Show a, PS.FromRow (KP t, a)) => PS.Connection -> Query (K t a) -> IO [(KP t, a)]
+query__ conn q = do
+  cq <- fillCaches conn (labelQuery q)
+  PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
 
 query_ :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> IO [K t a]
 query_ conn q = do
