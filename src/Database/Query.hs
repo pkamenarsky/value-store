@@ -21,6 +21,9 @@
 module Database.Query where
 
 import Control.Arrow
+import Control.Arrow.Operations
+import Control.Arrow.Transformer.Automaton
+import Control.Arrow.Transformer.State as AST
 import qualified Control.Category as C
 import Control.Monad hiding (join)
 import Control.Monad.Trans.State.Strict
@@ -224,10 +227,16 @@ data Action = Insert | Delete deriving (Eq, Show, Generic)
 instance A.FromJSON Action
 instance A.ToJSON Action
 
-data Auto st i o = Auto st (i -> (o, (Auto st i o)))
+data Auto st i o = Auto (i -> (o, (Auto st i o)))
 
-withState' :: st -> Auto st i o -> Auto st i o
-withState' = undefined
+data Auto' st i o = Auto' st ((i, st) -> (o, st))
+
+--withState' :: st -> Auto st i o -> Auto st i o
+--withState' = undefined
+
+instance C.Category (Auto' (Maybe (Ix.IxMap a b))) where
+  id = Auto' Nothing id
+  (Auto' st1 f) . (Auto' st2 g) = Auto' undefined (f . g)
 
 instance C.Category (Auto st) where
   {-
@@ -238,13 +247,37 @@ instance C.Category (Auto st) where
 
 instance Arrow (Auto st) where
 
-type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
+instance ArrowState (Ix.IxMap a b) (Auto (Ix.IxMap a b)) where
+
+-- type Node t a = Auto (Ix.IxMap (KP t) a) DBValue [(Action, K t a)]
+
+withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
+withState' st (StateArrow (Automaton f)) = StateArrow (Automaton $ \(b, _) -> f (b, st))
+
+testNode :: Node () String
+testNode = withState' (Ix.empty compare) $ proc (DBValue _ _ _) -> do
+  store -< Ix.fromList [(WP, "bla")] compare
+  returnA -< []
+
+runStep :: Automaton (->) a b -> (a -> (b, Automaton (->) a b))
+runStep (Automaton f) = f
+
+-- runTestNode :: _
+runTestNode = fst $ runStep (AST.runState testNode) (undefined, Ix.empty compare)
+
+type Node t a = StateArrow
+                  (Ix.IxMap (KP t) a)
+                  (Automaton (->))
+                  DBValue
+                  [(Action, K t a)]
 
 queryToNode :: Query' (K t a) l -> Node t a
 queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
   returnA -< [(action, K undefined undefined)]
-queryToNode (Filter _ f q) = withState' undefined $ proc dbvalue -> do
+queryToNode (Filter _ f q) = proc dbvalue -> do
   ts <- node -< dbvalue
+  a <- fetch -< ()
+  store -< a
   returnA -< ts
   where node = queryToNode q
 
