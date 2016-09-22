@@ -87,8 +87,6 @@ deriving instance Eq (KP t)
 deriving instance Ord (KP t)
 deriving instance Show (KP t)
 
-data K t a = K { key :: KP t, unK :: a } deriving (Eq, Ord, Generic, Typeable, Show)
-
 cmpKP :: KP t -> KP t -> Bool
 KP k   `cmpKP` KP k'    = k == k'
 _      `cmpKP` WP       = True
@@ -108,23 +106,11 @@ instance Fields a => PS.FromRow (KP (Key a), a) where
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return (KP k, a)
 
-instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (KP (t :. u), (a :. b)) where
+instance (PS.FromRow (KP t, a), PS.FromRow (KP u, b)) => PS.FromRow (KP (t :. u), (a :. b)) where
   fromRow = do
-    a <- PS.fromRow
-    b <- PS.fromRow
-    return (SP (key a) (key b), (unK a :. unK b))
-
-instance Fields a => PS.FromRow (K (Key a) a) where
-  fromRow = do
-    k <- PS.field
-    a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
-    return $ K (KP k) a
-
-instance (PS.FromRow (K t a), PS.FromRow (K u b)) => PS.FromRow (K (t :. u) (a :. b)) where
-  fromRow = do
-    a <- PS.fromRow
-    b <- PS.fromRow
-    return $ K (SP (key a) (key b)) (unK a :. unK b)
+    (k, a) <- PS.fromRow
+    (l, b) <- PS.fromRow
+    return (SP k l, (a :. b))
 
 instance {-# OVERLAPPABLE #-} Fields a => PS.ToRow a where
   toRow v = map snd $ flattenObject "" $ fields (Just v)
@@ -144,10 +130,10 @@ data DBValue = DBValue Action String A.Value
 newtype Key a = Key String deriving Show
 
 data Query' a l where
-  All    :: (PS.FromRow (K (Key a) a), A.FromJSON a) => l -> Row -> Query' (K (Key a) a) l
-  Filter :: PS.FromRow (K t a) => l -> Expr a Bool -> Query' (K t a) l -> Query' (K t a) l
-  Sort   :: (PS.FromRow (K t a), Ord b, Show a) => l -> Ix.IxMap (KP t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (K t a) l -> Query' (K t a) l
-  Join   :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => l -> Expr (a :. b) Bool -> Query' (K t a) l -> Query' (K u b) l -> Query' (K (t :. u) (a :. b)) l
+  All    :: (PS.FromRow (Key a, a), A.FromJSON a) => l -> Row -> Query' (KP (Key a), a) l
+  Filter :: PS.FromRow (KP t, a) => l -> Expr a Bool -> Query' (KP t, a) l -> Query' (KP t, a) l
+  Sort   :: (PS.FromRow (KP t, a), Ord b, Show a) => l -> Ix.IxMap (KP t) a -> Expr a b -> Maybe Int -> Maybe Int -> Query' (KP t, a) l -> Query' (KP t, a) l
+  Join   :: (Show a, Show b, PS.FromRow (KP t, a), PS.FromRow (KP u, b), PS.FromRow (KP (t :. u), (a :. b))) => l -> Expr (a :. b) Bool -> Query' (KP t, a) l -> Query' (KP u, b) l -> Query' (KP (t :. u), (a :. b)) l
 
 deriving instance (Show l, Show a) => Show (Query' a l)
 
@@ -155,6 +141,7 @@ type Query a = Query' a ()
 type LQuery a = Query' a String
 type CQuery a = Query' a String
 
+{-
 all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
 all = All () (Row table' kvs)
   where
@@ -170,6 +157,7 @@ sort expr = Sort () (Ix.empty (comparing (foldExpr expr))) expr
 
 join :: (Show a, Show b, PS.FromRow (K t a), PS.FromRow (K u b), PS.FromRow (K (t :. u) (a :. b))) => Expr (a :. b) Bool -> Query (K t a) -> Query (K u b) -> Query (K (t :. u) (a :. b))
 join = Join ()
+-}
 
 queryLabel :: Query' a l -> l
 queryLabel (All l _) = l
@@ -224,7 +212,7 @@ data SortOrder a = forall b. Ord b => SortBy (Expr a b) | Unsorted
 
 deriving instance Show (SortOrder a)
 
-sortOrder :: Query' (K t a) l -> SortOrder a
+sortOrder :: Query' (t, a) l -> SortOrder a
 sortOrder (All _ _)          = Unsorted
 sortOrder (Filter _ _ q)     = sortOrder q
 sortOrder (Sort _ _ e _ _ _) = SortBy e
@@ -245,21 +233,21 @@ withLocalState st f = do
     writeIORef stref st''
     return b
 
-type Node t a = DBValue -> IO [(Action, K t a)]
+type Node t a = DBValue -> IO [(Action, (KP t, a))]
 
-queryToNode :: Query' (K t a) l -> IO (Node t a)
+queryToNode :: Query' (KP t, a) l -> IO (Node t a)
 queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
-  return [(action, K undefined undefined)]
+  return [(action, (undefined, undefined))]
 queryToNode (Sort _ _ e offset limit q) = do
   node <- queryToNode q
 
   withLocalState (Ix.take (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
     MT.lift (node dbvalue) >>= go
     where
-      insert a cache
-        | cache' <- Ix.insert (key a) (unK a) cache
-        , Just i <- Ix.elemIndex (key a) cache'
-        , i < fromMaybe maxBound limit = ([(Insert, a)], cache')
+      insert v@(k, a) cache
+        | cache' <- Ix.insert k a cache
+        , Just i <- Ix.elemIndex k cache'
+        , i < fromMaybe maxBound limit = ([(Insert, v)], cache')
         | otherwise                    = ([], cache)
 
       go [] = return []
@@ -271,6 +259,7 @@ queryToNode (Sort _ _ e offset limit q) = do
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
 -- a delete happens, Join (or something else) expects data to be there.
+{-
 passesQuery :: PS.Connection
             -> DBValue
             -> CQuery (K t a)
@@ -399,4 +388,5 @@ query conn q cb = do
           cb rs'
           go q' rs'
         Nothing -> go q rs
+-}
 

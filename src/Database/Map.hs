@@ -38,6 +38,7 @@ import GHC.Generics
 
 import Debug.Trace
 
+{-
 insertRow :: forall a. (Show a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
@@ -90,7 +91,7 @@ modifyRow :: forall a prf.
            , Typeable a
            , A.ToJSON a
            , Fields a
-           , PS.FromRow (K (Key a) a)
+           , PS.FromRow (KP (Key a), a)
            , PS.ToRow a
            )
           => PS.Connection
@@ -99,10 +100,10 @@ modifyRow :: forall a prf.
           -> (MapADTM "modify" prf a -> MapADTM "modify" prf a)
           -> IO ()
 modifyRow conn prf (Key key) f = do
-  [a] <- query_ conn (filter (keyE `Eqs` Cnst key) $ all) :: IO [K (Key a) a]
+  [a] <- query_ conn (filter (keyE `Eqs` Cnst key) $ all) :: IO [(Key a, a)]
   print a
   let (to, from) = PRM.mapADT (Proxy :: Proxy "modify") prf
   let a' = from . f . to $ unK a
   print a'
   insertRow conn key a'
-
+-}

@@ -30,6 +30,7 @@ import GHC.Generics
 
 import Debug.Trace
 
+{-
 data Admin = Admin
 data Auth = Auth
 
@@ -84,7 +85,7 @@ streetE :: Expr (Address) String
 streetE = Fld "street" (Just . _street)
 
 ql = (filter (ageE `Grt` Cnst 3) $ sort nameE Nothing (Just 10) $ filter (ageE `Grt` Cnst 6) $ all)
-qr :: Query (K (Key Person) Person)
+qr :: Query (Key Person, Person)
 qr = all
 -- q1 :: _
 q1 = {- join (Fst ageE `Grt` Snd (Fst ageE)) ql -} (join (Fst ageE `Grt` Snd ageE) ql qr)
@@ -96,7 +97,7 @@ q2 = sort (Fst (Fst ageE)) Nothing (Just 100) $ join ((Fst (Fst ageE) `Eqs` Fst 
 
 -- q2sql = fst $ foldQuerySql (labelQuery q2)
 
-allPersons :: Query (K (Key Person) Person)
+allPersons :: Query (Key Person, Person)
 allPersons = all
 
 simplejoin = {- sort (Fst ageE) Nothing (Just 100) $ -} join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
@@ -217,5 +218,6 @@ testSort = do
 
     killThread tid
   -}
+-}
 
 --------------------------------------------------------------------------------
