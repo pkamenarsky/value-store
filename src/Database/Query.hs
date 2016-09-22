@@ -78,16 +78,15 @@ data Key a where
 
 -- deriving instance Generic (Key t)
 deriving instance Typeable (Key t)
-deriving instance Eq (Key t)
 deriving instance Ord (Key t)
 deriving instance Show (Key t)
 
-cmpKey :: Key t -> Key t -> Bool
-Key k       `cmpKey` Key k'        = k == k'
-_           `cmpKey` KeyStar       = True
-KeyStar     `cmpKey` _             = True
-KeyComp k l `cmpKey` KeyComp k' l' = k `cmpKey` k' && l `cmpKey` l'
-_           `cmpKey` _             = error "Keys not structurally equivalent"
+instance Eq (Key a) where
+  (Key k1)      == (Key k2)      = k1 == k2
+  _             == KeyStar       = True
+  KeyStar       == _             = True
+  KeyComp k1 l1 == KeyComp k2 l2 = k1 == k2 && l1 == l2
+  _             == _             = False
 
 {-
 instance Fields a => PS.ToRow (K t a) where
