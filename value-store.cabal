@@ -30,8 +30,6 @@ library
   -- other-modules:       
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric
   build-depends:       base >=4.7 && <5
-                     , auto
-                     , arrows
                      , bookkeeper
                      , bookkeeper-permissions
                      , bytestring

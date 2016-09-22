@@ -1,4 +1,3 @@
-{-# LANGUAGE Arrows #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -20,13 +19,6 @@
 
 module Database.Query where
 
-import qualified Control.Auto as Auto
-import Control.Arrow
-import Control.Arrow.Operations
-import Control.Arrow.Transformer as AT
-import Control.Arrow.Transformer.Automaton
-import Control.Arrow.Transformer.State as AST
-import qualified Control.Category as C
 import Control.Monad hiding (join)
 import Control.Monad as MND
 import Control.Monad.Trans.State.Strict as ST
@@ -231,22 +223,6 @@ data Action = Insert | Delete deriving (Eq, Show, Generic)
 instance A.FromJSON Action
 instance A.ToJSON Action
 
-type Node t a = StateArrow
-                  (Ix.IxMap (KP t) a)
-                  (Automaton (Kleisli IO))
-                  DBValue
-                  [(Action, K t a)]
-
-type Node' t a = Auto.Auto IO DBValue [(Action, K t a)]
-
-type Node'' t a = DBValue -> IO [(Action, K t a)]
-
-withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
-withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
-
-liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
-liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
-
 withLocalState :: st -> (a -> StateT st IO b) -> IO (a -> IO b)
 withLocalState st f = do
   stref <- newIORef st
@@ -257,50 +233,13 @@ withLocalState st f = do
     writeIORef stref st''
     return b
 
-testNode :: Node () String
-testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
-  store -< Ix.fromList [(WP, "bla")] compare
-  liftIO print -< "666"
-  returnA -< []
+type Node t a = DBValue -> IO [(Action, K t a)]
 
-testNode' :: Node' () String
-testNode' = proc dbv -> do
-  Auto.arrM (\x -> print "888") -< ()
-  returnA -< []
-
-runStep :: Automaton a b c -> a b (c, Automaton a b c)
-runStep (Automaton f) = f
-
--- runTestNode :: _
-runTestNode = runKleisli (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
-
-runTestNode' = Auto.stepAuto testNode' undefined
-
-queryToNode :: Query' (K t a) l -> Node t a
-queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
-  returnA -< [(action, K undefined undefined)]
-queryToNode (Filter _ f q) = proc dbvalue -> do
-  ts <- node -< dbvalue
-  a <- fetch -< ()
-  store -< a
-  -- r <- AT.lift (AT.lift prA) -< ()
-  returnA -< ts
-  where node = queryToNode q
-
-queryToNode'' :: Query' (K t a) l -> IO (Node'' t a)
-queryToNode'' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
+queryToNode :: Query' (K t a) l -> IO (Node t a)
+queryToNode (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
   return [(action, K undefined undefined)]
-queryToNode'' (Filter _ f q) = do
-  node <- queryToNode'' q
-  return $ \dbvalue -> do
-    ts <- node dbvalue
-    return ts
-
-queryToNode''' :: Query' (K t a) l -> IO (Node'' t a)
-queryToNode''' (All _ (Row r' _)) = return $ \(DBValue action r value) -> do
-  return [(action, K undefined undefined)]
-queryToNode''' (Sort _ _ e offset limit q) = do
-  node <- queryToNode''' q
+queryToNode (Sort _ _ e offset limit q) = do
+  node <- queryToNode q
 
   withLocalState (Ix.take (fromMaybe maxBound limit) $ Ix.empty (comparing (foldExpr e))) $ \dbvalue -> do
     MT.lift (node dbvalue) >>= go
