@@ -261,7 +261,7 @@ testNode = withState' (Ix.empty compare) $ proc dbv -> do
   AT.lift (AT.lift prA) -< ()
   returnA -< []
   where
-    prA :: IOF () ()
+    prA :: ArrowIO (->) () ()
     prA = proc () -> do
       arr (\x -> putStrLn "asd") -< ()
       returnA -< ()
@@ -270,19 +270,21 @@ runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
 
 -- runTestNode :: _
-runTestNode = runIOF (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
+runTestNode = runArrowIO (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
 
-newtype IOF a b = IOF { runIOF :: a -> IO b }
+newtype ArrowIO a b c = ArrowIO { runArrowIO :: a b (IO c) }
 
-instance C.Category IOF where
+instance Arrow a => C.Category (ArrowIO a) where
+  id = ArrowIO (arr return)
+  (ArrowIO f) . (ArrowIO g) = ArrowIO (f <<< g)
 
-instance Arrow IOF where
+instance Arrow a => Arrow (ArrowIO a) where
 
 -- instance ArrowTransformer IOF where
 
 type Node t a = StateArrow
                   (Ix.IxMap (KP t) a)
-                  (Automaton IOF)
+                  (Automaton (ArrowIO (->)))
                   DBValue
                   [(Action, K t a)]
 
@@ -293,13 +295,9 @@ queryToNode (Filter _ f q) = proc dbvalue -> do
   ts <- node -< dbvalue
   a <- fetch -< ()
   store -< a
-  AT.lift (AT.lift prA) -< ()
+  -- r <- AT.lift (AT.lift prA) -< ()
   returnA -< ts
   where node = queryToNode q
-        prA :: IOF () ()
-        prA = proc () -> do
-          arr (\x -> putStrLn "asd") -< ()
-          returnA -< ()
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
