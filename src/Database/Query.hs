@@ -20,6 +20,7 @@
 
 module Database.Query where
 
+import qualified Control.Auto as Auto
 import Control.Arrow
 import Control.Arrow.Operations
 import Control.Arrow.Transformer as AT
@@ -235,6 +236,8 @@ type Node t a = StateArrow
                   DBValue
                   [(Action, K t a)]
 
+type Node' t a = Auto.Auto IO DBValue [(Action, K t a)]
+
 withState' :: Ix.IxMap (KP t) a -> Node t a -> Node t a
 withState' st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
 
@@ -247,11 +250,18 @@ testNode = {- withState' (Ix.empty compare) $ -} proc dbv -> do
   liftIO print -< "666"
   returnA -< []
 
+testNode' :: Node' () String
+testNode' = proc dbv -> do
+  Auto.arrM (\x -> print "888") -< ()
+  returnA -< []
+
 runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
 
 -- runTestNode :: _
 runTestNode = runKleisli (runStep (AST.runState testNode)) (undefined, Ix.fromList [(WP, "yyy")] compare)
+
+runTestNode' = Auto.stepAuto testNode' undefined
 
 queryToNode :: Query' (K t a) l -> Node t a
 queryToNode (All _ (Row r' _)) = proc (DBValue action r value) -> do
