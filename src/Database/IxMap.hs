@@ -20,37 +20,37 @@ import qualified Data.List as L
 import Prelude hiding (take, lookup)
 import qualified Prelude as P
 
-data IxMap k a = IxMap (M.Map k a) (a -> a -> Ordering) Int
+data IxMap k a = IxMap [(k, a)] (a -> a -> Ordering) Int
 
 instance (Show k, Show a) => Show (IxMap k a) where
-  show (IxMap as _ _) = show as
+  show (IxMap xs _ _) = show xs
 
 empty :: (a -> a -> Ordering) -> IxMap k a
-empty sort = IxMap M.empty sort maxBound
+empty sort = IxMap [] sort maxBound
 
 delete :: Ord k => k -> IxMap k a -> IxMap k a
-delete k (IxMap as sort limit) = IxMap (M.delete k as) sort limit
+delete k (IxMap xs sort limit) = IxMap (L.deleteBy ((==) `on` fst) (k, undefined) xs) sort limit
 
 insert :: Ord k => k -> a -> IxMap k a -> IxMap k a
-insert k a (IxMap as sort limit) = IxMap (M.insert k a as) sort limit
+insert k a (IxMap xs sort limit) = IxMap (L.take limit $ L.insertBy (sort `on` snd) (k, a) xs) sort limit
 
 lookup :: Ord k => k -> IxMap k a -> Maybe a
-lookup k m = snd <$> (L.find ((k ==) . fst) $ toList m)
+lookup k (IxMap xs _ _) = snd <$> (L.find ((k ==) . fst) xs)
 
 elemIndex :: Ord k => k -> IxMap k a -> Maybe Int
-elemIndex k m@(IxMap _ _ limit)
-  | Just i <- L.elemIndex k $ map fst $ toList m
+elemIndex k (IxMap xs _ limit)
+  | Just i <- L.findIndex ((k ==) . fst) xs
   , i < limit = Just i
   | otherwise = Nothing
 
 limit :: Int -> IxMap k a -> IxMap k a
-limit n (IxMap as sort limit) = IxMap as sort (min n limit)
+limit n (IxMap xs sort limit) = IxMap xs sort (min n limit)
 
-fromList :: Ord k => [(k, a)] -> (a -> a -> Ordering) -> IxMap k a
-fromList as sort = IxMap (M.fromList as) sort maxBound
+fromList :: Ord k => (a -> a -> Ordering) -> [(k, a)] -> IxMap k a
+fromList sort as = IxMap (L.sortBy (sort `on` snd) as) sort maxBound
 
 toList :: IxMap k a -> [(k, a)]
-toList (IxMap as sort limit) = P.take limit $ L.sortBy (sort `on` snd) $ M.toList as
+toList (IxMap xs sort limit) = xs
 
 size :: IxMap k a -> Int
-size (IxMap as _ limit) = min (M.size as) limit
+size (IxMap xs _ limit) = L.length xs

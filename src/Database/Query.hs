@@ -247,7 +247,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
   cache <- case limit of
     Just limit -> do
       rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-      return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
+      return $ Ix.limit limit $ Ix.fromList (comparing (foldExpr e)) rs
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
   -- this arrow contains a local cache; it takes a StateT computation operating
