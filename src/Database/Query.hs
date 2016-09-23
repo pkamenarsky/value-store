@@ -270,10 +270,27 @@ liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
 liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
 
 testNodeA :: NodeA String
-testNodeA = withLocalStateA (Ix.empty compare) $ proc dbv -> do
-  store -< Ix.fromList [(Key "key", "bla")] compare
+testNodeA = withLocalStateA (Ix.fromList [(Key "1", "1")] compare) $ proc dbv -> do
+  modifyA -< Ix.insert (Key "iii") "ooo"
   liftIO print -< "666"
+  st <- fetch -< ()
+  liftIO print -< st
+  r <- testNodeA2 -< dbv
+  st <- fetch -< ()
+  liftIO print -< st
   returnA -< []
+
+testNodeA2 :: NodeA String
+testNodeA2 = withLocalStateA (Ix.fromList [(Key "2", "2")] compare) $ proc dbv -> do
+  modifyA -< Ix.insert (Key "3") "3"
+  liftIO print -< "777"
+  returnA -< []
+
+modifyA :: ArrowState s a => a (s -> s) s
+modifyA = proc f -> do
+  st <- fetch -< ()
+  store -< f st
+  fetch -< ()
 
 runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
