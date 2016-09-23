@@ -5,7 +5,6 @@ module Database.IxMap
   , delete
   , insert
   , lookup
-  , limit
   , elemIndex
   , fromList
   , toList
@@ -43,11 +42,8 @@ elemIndex k (IxMap xs _ limit)
   , i < limit = Just i
   | otherwise = Nothing
 
-limit :: Int -> IxMap k a -> IxMap k a
-limit n (IxMap xs sort limit) = IxMap xs sort (min n limit)
-
-fromList :: Ord k => (a -> a -> Ordering) -> [(k, a)] -> IxMap k a
-fromList sort as = IxMap (L.sortBy (sort `on` snd) as) sort maxBound
+fromList :: Ord k => (a -> a -> Ordering) -> Int -> [(k, a)] -> IxMap k a
+fromList sort limit as = IxMap (L.sortBy (sort `on` snd) as) sort limit
 
 toList :: IxMap k a -> [(k, a)]
 toList (IxMap xs sort limit) = xs
