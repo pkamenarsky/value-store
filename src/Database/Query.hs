@@ -80,12 +80,10 @@ import Debug.Trace
 
 data Row = Row String [String] deriving Show
 
-data DBValue = DBValue Action String A.Value
+data DBAction = DBInsert String A.Value | DBDelete String A.Value deriving (Generic)
 
-data Action = Insert | Delete deriving (Eq, Show, Generic)
-
-instance A.FromJSON Action
-instance A.ToJSON Action
+instance A.FromJSON DBAction
+instance A.ToJSON DBAction
 
 data Key a where
   Key     :: String -> Key a
@@ -216,11 +214,13 @@ foldQuerySql (Join l f ql qr) =
 
 -- Operational -----------------------------------------------------------------
 
-type Node a = Auto.Auto IO DBValue [(Action, (Key a, a))]
+data Action a = Insert (Key a, a) | Delete (Key a) deriving (Eq, Show)
+
+type Node a = Auto.Auto IO DBAction [Action a]
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
-queryToNode conn (All _ (Row r' _)) = return $ proc (DBValue action r value) -> do
-  returnA -< [(action, (undefined, undefined))]
+queryToNode conn (All _ (Row row' _)) = return $ proc dbaction -> do
+  returnA -< [Insert undefined]
 
 queryToNode conn (Filter _ f q) = do
   node <- queryToNode conn q
@@ -248,11 +248,11 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
   where
     insert v@(k, a) cache
       | cache' <- Ix.insert k a cache
-      , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
+      , Just i <- Ix.elemIndex k cache' = ([(Insert v)], cache')
       | otherwise                       = ([], cache)
 
     go [] = return []
-    go ((Insert, a):as) = do
+    go ((Insert a):as) = do
       a'  <- ST.state (insert a)
       as' <- go as
       return $ a' ++ as'
