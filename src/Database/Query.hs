@@ -21,12 +21,6 @@
 
 module Database.Query where
 
-import Control.Arrow
-import Control.Arrow.Operations
-import Control.Arrow.Transformer as AT
-import Control.Arrow.Transformer.Automaton
-import Control.Arrow.Transformer.State as AST
-
 import Control.Monad hiding (join)
 import Control.Monad as MND
 import Control.Monad.Trans.State.Strict as ST
@@ -254,61 +248,6 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
         a'  <- ST.state (insert a)
         as' <- go as
         return $ a' ++ as'
-
---------------------------------------------------------------------------------
-
-type NodeA a = StateArrow
-                  (Ix.IxMap (Key a) a)
-                  (Automaton (Kleisli IO))
-                  DBValue
-                  [(Action, (Key a, a))]
-
-withLocalStateA :: Ix.IxMap (Key a) a -> NodeA a -> NodeA a
-withLocalStateA st (StateArrow (Automaton f)) = StateArrow (Automaton $ Kleisli $ \(b, _) -> runKleisli f (b, st))
-
-liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
-liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
-
-testNodeA :: NodeA String
-testNodeA = withLocalStateA (Ix.fromList [(Key "1", "1")] compare) $ proc dbv -> do
-  modifyA -< Ix.insert (Key "iii") "ooo"
-  liftIO print -< "666"
-  st <- fetch -< ()
-  liftIO print -< st
-  r <- testNodeA2 -< dbv
-  st <- fetch -< ()
-  liftIO print -< st
-  returnA -< []
-
-testNodeA2 :: NodeA String
-testNodeA2 = withLocalStateA (Ix.fromList [(Key "2", "2")] compare) $ proc dbv -> do
-  modifyA -< Ix.insert (Key "3") "3"
-  liftIO print -< "777"
-  returnA -< []
-
-modifyA :: ArrowState s a => a (s -> s) s
-modifyA = proc f -> do
-  st <- fetch -< ()
-  store -< f st
-  fetch -< ()
-
-runStep :: Automaton a b c -> a b (c, Automaton a b c)
-runStep (Automaton f) = f
-
--- runTestNode :: _
-runTestNodeA = runKleisli (runStep (AST.runState testNodeA)) (undefined, Ix.fromList [(Key "nokey", "yyy")] compare)
-
-queryToNodeA :: Query' (Key a, a) l -> NodeA a
-queryToNodeA (All _ (Row r' _)) = proc (DBValue action r value) -> do
-  returnA -< [(action, (undefined, undefined))]
-queryToNodeA (Filter _ f q) = proc dbvalue -> do
-  ts <- node -< dbvalue
-  a <- fetch -< ()
-  store -< a
-  -- r <- AT.lift (AT.lift prA) -< ()
-  returnA -< ts
-  where node = queryToNodeA q
-
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
