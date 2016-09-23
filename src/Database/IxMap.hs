@@ -31,7 +31,7 @@ delete :: Ord k => k -> IxMap k a -> IxMap k a
 delete k (IxMap xs sort limit) = IxMap (L.deleteBy ((==) `on` fst) (k, undefined) xs) sort limit
 
 insert :: Ord k => k -> a -> IxMap k a -> IxMap k a
-insert k a (IxMap xs sort limit) = IxMap (L.take limit $ L.insertBy (sort `on` snd) (k, a) xs) sort limit
+insert k a (IxMap xs sort limit) = IxMap (L.take limit $ L.insertBy (sort `on` snd) (k, a) $ L.deleteBy ((==) `on` fst) (k, undefined) xs) sort limit
 
 lookup :: Ord k => k -> IxMap k a -> Maybe a
 lookup k (IxMap xs _ _) = snd <$> (L.find ((k ==) . fst) xs)
