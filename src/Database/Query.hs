@@ -259,36 +259,22 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
 
 --------------------------------------------------------------------------------
 
-type NodeA a = Auto.Auto IO DBValue [(Action, (Key a, a))]
+type NodeA a = Auto.Auto IO String [(Action, (Key a, a))]
 
 testNodeA :: NodeA String
 testNodeA = proc dbv -> do
-  r <- testNodeA2 -< dbv
+  -- r <- testNodeA2 -< dbv
   old <- cache -< do
-    MT.liftIO $ putStrLn "asd"
-    ST.modify $ Ix.insert (Key "2") "2"
-  -- Auto.arrM print -< old
+    MT.liftIO $ putStrLn "modifying"
+    ST.modify $ Ix.insert (Key dbv) dbv
+    ST.get
+  Auto.arrM print -< old
   returnA -< [(Insert, (Key "asd", "asd"))]
   where
     cache = flip Auto.mkStateM_ (Ix.empty compare) runStateT
 
-testNodeA2 :: NodeA String
-testNodeA2 = proc dbv -> do
-  -- modifyA -< Ix.insert (Key "3") "3"
-  -- liftIO print -< "777"
-  returnA -< []
-
-modifyA :: ArrowState s a => a (s -> s) s
-modifyA = proc f -> do
-  st <- fetch -< ()
-  store -< f st
-  fetch -< ()
-
-runStep :: Automaton a b c -> a b (c, Automaton a b c)
-runStep (Automaton f) = f
-
 -- runTestNode :: _
-runTestNodeA = Auto.stepAuto testNodeA undefined
+runTestNodeA a dbv = Auto.stepAuto a dbv
 
 -- queryToNodeA :: Query' (Key a, a) l -> NodeA a
 -- queryToNodeA (All _ (Row r' _)) = proc (DBValue action r value) -> do
