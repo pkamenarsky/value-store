@@ -266,18 +266,17 @@ queryToNode conn qq@(Sort l e offset limit q) = do
 
     delete k cache
       | Just _ <- Ix.lookup k cache = do
+          -- FIXME: fix limit
           as <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
           return (Delete k : map Insert as, Ix.delete k $ foldr (uncurry Ix.insert) cache as)
       | otherwise = do
           return ([Delete k], cache)
 
     go [] = return []
-    go (Insert a:as) = do
-      as'  <- ST.state $ insert a
-      as'' <- go as
-      return $ as' ++ as''
-    go (Delete k:as) = do
-      as'  <- StateT $ delete k
+    go (a:as) = do
+      as'  <- case a of
+        Insert a -> ST.state $ insert a
+        Delete k -> StateT   $ delete k
       as'' <- go as
       return $ as' ++ as''
 
