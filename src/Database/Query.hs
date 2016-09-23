@@ -24,6 +24,7 @@ module Database.Query where
 import Control.Monad hiding (join)
 import Control.Monad as MND
 import Control.Monad.Trans.State.Strict as ST
+import Control.Exception
 import qualified Control.Monad.Trans as MT
 import Control.Concurrent
 import Control.Concurrent.MVar
@@ -40,6 +41,7 @@ import Data.Monoid                ((<>), mconcat)
 import Data.Ord
 import qualified Data.Set                   as S
 import qualified Data.Map                   as M
+import Data.Tuple                 (swap)
 import Data.Typeable
 
 import qualified Data.ByteString.Builder as B
@@ -214,13 +216,8 @@ type Node a = PS.Connection -> DBValue -> IO [(Action, (Key a, a))]
 
 withLocalState :: st -> (a -> b -> StateT st IO c) -> IO (a -> b -> IO c)
 withLocalState st f = do
-  stref <- newIORef st
-
-  return $ \a b -> do
-    st' <- readIORef stref
-    (b, st'') <- runStateT (f a b) st'
-    writeIORef stref st''
-    return b
+  stref <- newMVar st
+  return $ \a b -> modifyMVar stref (fmap swap . runStateT (f a b))
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
 queryToNode conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
