@@ -85,6 +85,8 @@ data DBAction = DBInsert String A.Value | DBDelete String A.Value deriving (Gene
 instance A.FromJSON DBAction
 instance A.ToJSON DBAction
 
+deriving instance Show PS.Notification
+
 data Key a where
   Key     :: String -> Key a
   KeyStar :: Key a
@@ -174,6 +176,8 @@ sortOrder (All _ _)        = Unsorted
 sortOrder (Filter _ _ q)   = sortOrder q
 sortOrder (Sort _ e _ _ _) = SortBy e
 sortOrder (Join _ _ _ _)   = Unsorted
+
+-- Labeling, folding -----------------------------------------------------------
 
 labelQuery :: Query' a l -> QueryL a
 labelQuery expr = evalState (traverse (const genVar) expr) 0
@@ -305,10 +309,6 @@ queryToNode conn (Join _ e ql qr) = do
             return [ Insert (combkey k kbr, combvalue v vbr) | (kbr, vbr) <- asbr ]
           Delete k -> do
             return [ Delete (combkey k KeyStar) ]
-
-
-
-deriving instance Show PS.Notification
 
 query_ :: FR a => PS.Connection -> QueryL (Key a, a) -> IO [(Key a, a)]
 query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
