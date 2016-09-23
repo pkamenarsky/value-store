@@ -8,4 +8,4 @@
 * from https://www.postgresql.org/docs/9.1/static/transaction-iso.html
   * Declare transactions as READ ONLY when possible.
   * Control the number of active connections, using a connection pool if needed.
-
+* notify doesn't work inside two-phase commit
