@@ -37,10 +37,7 @@ lookup :: Ord k => k -> IxMap k a -> Maybe a
 lookup k (IxMap xs _ _) = snd <$> (L.find ((k ==) . fst) xs)
 
 elemIndex :: Ord k => k -> IxMap k a -> Maybe Int
-elemIndex k (IxMap xs _ limit)
-  | Just i <- L.findIndex ((k ==) . fst) xs
-  , i < limit = Just i
-  | otherwise = Nothing
+elemIndex k (IxMap xs _ limit) = L.findIndex ((k ==) . fst) xs
 
 fromList :: Ord k => (a -> a -> Ordering) -> Int -> [(k, a)] -> IxMap k a
 fromList sort limit as = IxMap (L.sortBy (sort `on` snd) as) sort limit
