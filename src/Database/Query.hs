@@ -270,7 +270,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
           as <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
           return (Delete k : map Insert as, Ix.delete k $ foldr (uncurry Ix.insert) cache as)
       | otherwise = do
-          return ([Delete k], cache)
+          return ([Delete k], cache)  -- always propagate Deletes (do we need to?)
 
     go [] = return []
     go (a:as) = do
