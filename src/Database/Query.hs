@@ -259,8 +259,9 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
 
 --------------------------------------------------------------------------------
 
-type NodeA a = Auto.Auto IO String [(Action, (Key a, a))]
+type NodeA a = Auto.Auto IO DBValue [(Action, (Key a, a))]
 
+{-
 testNodeA :: NodeA String
 testNodeA = proc dbv -> do
   -- r <- testNodeA2 -< dbv
@@ -272,21 +273,47 @@ testNodeA = proc dbv -> do
   returnA -< [(Insert, (Key "asd", "asd"))]
   where
     cache = flip Auto.mkStateM_ (Ix.empty compare) runStateT
+-}
 
 -- runTestNode :: _
 runTestNodeA a dbv = Auto.stepAuto a dbv
 
--- queryToNodeA :: Query' (Key a, a) l -> NodeA a
--- queryToNodeA (All _ (Row r' _)) = proc (DBValue action r value) -> do
---   returnA -< [(action, (undefined, undefined))]
--- queryToNodeA (Filter _ f q) = proc dbvalue -> do
---   ts <- node -< dbvalue
---   a <- fetch -< ()
---   store -< a
---   -- r <- AT.lift (AT.lift prA) -< ()
---   returnA -< ts
---   where node = queryToNodeA q
+queryToNodeA :: PS.Connection -> QueryL (Key a, a) -> IO (NodeA a)
+queryToNodeA conn (All _ (Row r' _)) = return $ proc (DBValue action r value) -> do
+  returnA -< [(action, (undefined, undefined))]
 
+queryToNodeA conn (Filter _ f q) = do
+  node <- queryToNodeA conn q
+
+  return $ proc dbvalue -> do
+    node -< dbvalue
+
+queryToNodeA conn qq@(Sort _ e offset limit q) = do
+  node <- queryToNodeA conn q
+
+  cache <- case limit of
+    Just limit -> do
+      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+      return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
+    Nothing    -> return $ Ix.empty (comparing (foldExpr e))
+
+  let cacheA = flip Auto.mkStateM_ cache runStateT
+
+  return $ proc dbvalue -> do
+    rs <- node -< dbvalue
+    cacheA -< go rs
+
+  where
+    insert v@(k, a) cache
+      | cache' <- Ix.insert k a cache
+      , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
+      | otherwise                       = ([], cache)
+
+    go [] = return []
+    go ((Insert, a):as) = do
+      a'  <- ST.state (insert a)
+      as' <- go as
+      return $ a' ++ as'
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
