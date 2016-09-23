@@ -21,6 +21,10 @@
 
 module Database.Query where
 
+import qualified Control.Auto as Auto
+
+import Control.Arrow
+
 import Control.Monad hiding (join)
 import Control.Monad as MND
 import Control.Monad.Trans.State.Strict as ST
@@ -212,40 +216,17 @@ foldQuerySql (Join l f ql qr) =
 
 -- Operational -----------------------------------------------------------------
 
-type Node a = PS.Connection -> DBValue -> IO [(Action, (Key a, a))]
-
-type NodeSt a = PS.Connection -> DBValue -> StateT (NodeState a) IO [(Action, (Key a, a))]
-
-data NodeState a where
-  StateEmpty :: NodeState a
-  State      :: Ix.IxMap (Key a) a -> NodeState a -> NodeState a
-  StateComp  :: NodeState a -> NodeState b -> NodeState (a :. b)
-
-mkNodeState :: forall a. Query (Key a, a) -> NodeState a
-mkNodeState (All _ _)        = StateEmpty
-mkNodeState (Filter _ _ q)   = mkNodeState q
-mkNodeState (Sort _ e _ _ q) = State (Ix.empty (comparing (foldExpr e))) (mkNodeState q)
-mkNodeState (Join _ _ ql qr) = StateComp (mkNodeState ql) (mkNodeState qr)
-
-queryToNodeSt :: PS.Connection -> QueryL (Key a, a) -> IO (NodeSt a)
-queryToNodeSt conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
-  return [(action, (undefined, undefined))]
-
-queryToNodeSt conn qq@(Sort _ e offset limit q) = do
-  node <- queryToNodeSt conn q
-
-  return undefined
-
---------------------------------------------------------------------------------
-
-withLocalState :: st -> (a -> b -> StateT st IO c) -> IO (a -> b -> IO c)
-withLocalState st f = do
-  stref <- newMVar st
-  return $ \a b -> modifyMVar stref (fmap swap . runStateT (f a b))
+type Node a = Auto.Auto IO DBValue [(Action, (Key a, a))]
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
-queryToNode conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
-  return [(action, (undefined, undefined))]
+queryToNode conn (All _ (Row r' _)) = return $ proc (DBValue action r value) -> do
+  returnA -< [(action, (undefined, undefined))]
+
+queryToNode conn (Filter _ f q) = do
+  node <- queryToNode conn q
+
+  return $ proc dbvalue -> do
+    node -< dbvalue
 
 queryToNode conn qq@(Sort _ e offset limit q) = do
   node <- queryToNode conn q
@@ -256,19 +237,25 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
       return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
-  withLocalState cache $ \conn dbvalue -> do
-    MT.lift (node conn dbvalue) >>= go
-    where
-      insert v@(k, a) cache
-        | cache' <- Ix.insert k a cache
-        , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
-        | otherwise                       = ([], cache)
+  -- this arrow contains a local cache; it takes a StateT computation operating
+  -- on the encapsulated cache state and returns its result
+  let cacheA = flip Auto.mkStateM_ cache runStateT
 
-      go [] = return []
-      go ((Insert, a):as) = do
-        a'  <- ST.state (insert a)
-        as' <- go as
-        return $ a' ++ as'
+  return $ proc dbvalue -> do
+    rs <- node -< dbvalue
+    cacheA -< go rs
+
+  where
+    insert v@(k, a) cache
+      | cache' <- Ix.insert k a cache
+      , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
+      | otherwise                       = ([], cache)
+
+    go [] = return []
+    go ((Insert, a):as) = do
+      a'  <- ST.state (insert a)
+      as' <- go as
+      return $ a' ++ as'
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
