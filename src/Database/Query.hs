@@ -306,102 +306,14 @@ queryToNode conn (Join _ e ql qr) = do
             return [ Delete (combkey k KeyStar) ]
 
 
--- NOTE: we need to ensure consistency. If something changes in the DB after
--- a notification has been received, the data has to remain consitent. I.e:
--- a delete happens, Join (or something else) expects data to be there.
 {-
-passesQuery :: PS.Connection
-            -> DBValue
-            -> CQuery (K t a)
-            -> IO (CQuery (K t a), SortOrder a, [(Action, K t a)])
-passesQuery conn row@(DBValue action r value) qq@(All _ (Row r' _))
-  | r == r', A.Success (k, a) <- A.fromJSON value = return (qq, Unsorted, [(action, K (Key k) a)])
-  -- FIXME: parsing
-  | r == r', action == Delete, A.Success k <- A.fromJSON value = return (qq, Unsorted, [(action, K (Key k) undefined)])
-  | otherwise = return (qq, Unsorted, [])
-passesQuery conn row qq@(Filter l f q) = do
-  (qc, so, as) <- passesQuery conn row q
-  return (Filter l f qc, so, [ v | v@(action, a) <- as
-                                 , case action of
-                                    Insert -> foldExpr f (unK a) == Just True
-                                    Delete -> True
-                             ])
-passesQuery conn row (Sort l cache expr offset limit q) = do
-  (qc, _, as)   <- passesQuery conn row q
-  (cache', as') <- go expr cache as
-  return (Sort l cache' expr offset limit qc, SortBy expr, as')
-  where
-    go expr cache [] = return (cache, [])
-    go expr cache ((Insert, a):as)
-      | cache' <- Ix.insert (key a) (unK a) cache
-      , Just i' <- Ix.elemIndex (key a) cache'
-      , i' < fromMaybe maxBound limit = do
-          (cache'', as') <- go expr (Ix.take (fromMaybe maxBound limit) cache') as
-          return (cache'', (Insert, a):as')
-      | otherwise = go expr cache as
-    go expr cache ((Delete, a):as)
-      | Just _ <- Ix.lookup (key a) cache = do
-          as' <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l cache expr (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
-          (cache', as'') <- go expr (Ix.delete (key a) cache) (map (Insert,) as' ++ as) -- add inserts as a result of gap after delete action
-          return (cache', (Delete, a):as'') -- keep delete action in results after recursion (which adds the additional inserts)
-      | otherwise = do
-          (cache', as'') <- go expr cache as
-          return (cache', (Delete, a):as'')
-passesQuery conn row ((Join l f (ql :: Query' (K t a) String) (qr :: Query' (K u b) String)) :: Query' (K tu ab) String) = do
-  (qcl, _, rl) <- passesQuery conn row ql
-  (qcr, _, rr) <- passesQuery conn row qr
-
-  rl' <- forM rl $ \(action, r) -> do
-    case action of
-      Insert -> do
-        ls <- case substFst f (unK r) of
-          Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) qr :: IO [K u b]
-          _          -> return []
-        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substFst f r) qr
-        return [ (Insert, K (SP (key r) (key l)) (unK r :. unK l)) | l <- ls ]
-      Delete -> do
-        traceIO $ show $ SP (key r) WP
-        return [ (Delete, K (SP (key r) WP) (error "Deleted element")) ]
-
-  rr' <- forM rr $ \(action, r) -> do
-    case action of
-      Insert -> do
-        ls <- case substSnd f (unK r) of
-          Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ filter subst $ fmap (const ()) ql :: IO [K t a]
-          _          -> return []
-        -- print $ fst $ foldQuerySql $ labelQuery $ filter (substSnd f r) ql
-        return [ (Insert, K (SP (key l) (key r)) (unK l :. unK r)) | l <- ls ]
-      Delete -> do
-        traceIO $ show $ SP WP (key r)
-        return [ (Delete, K (SP WP (key r)) (error "Deleted element")) ]
-
-  return (Join l f qcl qcr, Unsorted, concat rl' ++ concat rr')
-
-reconcile' :: SortOrder a -> (Action, K t a) -> [K t a] -> [K t a]
+reconcile' :: SortOrder a -> Action a -> [K t a] -> [K t a]
 reconcile' Unsorted (Insert, a) as      = undefined -- snd $ insertByKey (\_ _ -> LT) key a as
 reconcile' (SortBy expr) (Insert, a) as = undefined -- snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
 reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKey (key a) . key) as
 
 reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
 reconcile so = flip $ foldr (reconcile' so)
-
-fillCaches :: PS.Connection -> QueryL a -> IO (QueryL a)
-fillCaches _ (All l a) = return (All l a)
-fillCaches conn (Filter l a q) = do
-  q' <- fillCaches conn q
-  return (Filter l a q')
-fillCaches conn qq@(Sort l _ expr offset limit q) = do
-  cache <- case limit of
-    Just _  -> do
-      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-      return $ Ix.fromList (map (\a -> (key a, unK a)) rs) (comparing (foldExpr expr))
-    Nothing -> return $ Ix.empty (comparing (foldExpr expr))
-  q' <- fillCaches conn q
-  return (Sort l cache expr offset limit q')
-fillCaches conn (Join l a ql qr) = do
-  ql' <- fillCaches conn ql
-  qr' <- fillCaches conn qr
-  return (Join l a ql' qr')
 
 deriving instance Show PS.Notification
 
