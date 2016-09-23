@@ -313,6 +313,7 @@ deriving instance Show PS.Notification
 query_ :: FR a => PS.Connection -> QueryL (Key a, a) -> IO [(Key a, a)]
 query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
 
+-- could make that into coroutine? maybe nice for Views?
 query :: (Show a, FR a) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
 query conn q cb = do
   let ql   = labelQuery q
