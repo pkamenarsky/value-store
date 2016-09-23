@@ -214,6 +214,30 @@ foldQuerySql (Join l f ql qr) =
 
 type Node a = PS.Connection -> DBValue -> IO [(Action, (Key a, a))]
 
+type NodeSt a = PS.Connection -> DBValue -> StateT (NodeState a) IO [(Action, (Key a, a))]
+
+data NodeState a where
+  StateEmpty :: NodeState a
+  State      :: Ix.IxMap (Key a) a -> NodeState a -> NodeState a
+  StateComp  :: NodeState a -> NodeState b -> NodeState (a :. b)
+
+mkNodeState :: forall a. Query (Key a, a) -> NodeState a
+mkNodeState (All _ _)        = StateEmpty
+mkNodeState (Filter _ _ q)   = mkNodeState q
+mkNodeState (Sort _ e _ _ q) = State (Ix.empty (comparing (foldExpr e))) (mkNodeState q)
+mkNodeState (Join _ _ ql qr) = StateComp (mkNodeState ql) (mkNodeState qr)
+
+queryToNodeSt :: PS.Connection -> QueryL (Key a, a) -> IO (NodeSt a)
+queryToNodeSt conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
+  return [(action, (undefined, undefined))]
+
+queryToNodeSt conn qq@(Sort _ e offset limit q) = do
+  node <- queryToNodeSt conn q
+
+  return undefined
+
+--------------------------------------------------------------------------------
+
 withLocalState :: st -> (a -> b -> StateT st IO c) -> IO (a -> b -> IO c)
 withLocalState st f = do
   stref <- newMVar st
