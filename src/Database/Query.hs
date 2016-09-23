@@ -21,6 +21,8 @@
 
 module Database.Query where
 
+import qualified Control.Auto as Auto
+
 import Control.Arrow
 import Control.Arrow.Operations
 import Control.Arrow.Transformer as AT
@@ -257,33 +259,26 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
 
 --------------------------------------------------------------------------------
 
-type NodeA a = StateArrow
-                  (Ix.IxMap (Key a) a)
-                  (Automaton (Kleisli IO))
-                  DBValue
-                  [(Action, (Key a, a))]
+type NodeA a = Auto.Auto IO DBValue [(Action, (Key a, a))]
 
 withLocalStateA :: Ix.IxMap (Key a) a -> NodeA a -> NodeA a
-withLocalStateA st (StateArrow (Automaton f)) = StateArrow (Automaton $ Kleisli $ \(b, _) -> runKleisli f (b, st))
-
-liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
-liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
+withLocalStateA st = undefined -- StateArrow (Automaton $ Kleisli $ \(b, _) -> runKleisli f (b, st))
 
 testNodeA :: NodeA String
 testNodeA = withLocalStateA (Ix.fromList [(Key "1", "1")] compare) $ proc dbv -> do
-  modifyA -< Ix.insert (Key "iii") "ooo"
-  liftIO print -< "666"
-  st <- fetch -< ()
-  liftIO print -< st
+  -- modifyA -< Ix.insert (Key "iii") "ooo"
+  -- MND.lift print -< "666"
+  -- st <- fetch -< ()
+  -- liftIO print -< st
   r <- testNodeA2 -< dbv
-  st <- fetch -< ()
-  liftIO print -< st
+  -- st <- fetch -< ()
+  -- liftIO print -< st
   returnA -< []
 
 testNodeA2 :: NodeA String
 testNodeA2 = withLocalStateA (Ix.fromList [(Key "2", "2")] compare) $ proc dbv -> do
-  modifyA -< Ix.insert (Key "3") "3"
-  liftIO print -< "777"
+  -- modifyA -< Ix.insert (Key "3") "3"
+  -- liftIO print -< "777"
   returnA -< []
 
 modifyA :: ArrowState s a => a (s -> s) s
@@ -296,18 +291,18 @@ runStep :: Automaton a b c -> a b (c, Automaton a b c)
 runStep (Automaton f) = f
 
 -- runTestNode :: _
-runTestNodeA = runKleisli (runStep (AST.runState testNodeA)) (undefined, Ix.fromList [(Key "nokey", "yyy")] compare)
+runTestNodeA = Auto.stepAuto testNodeA undefined
 
-queryToNodeA :: Query' (Key a, a) l -> NodeA a
-queryToNodeA (All _ (Row r' _)) = proc (DBValue action r value) -> do
-  returnA -< [(action, (undefined, undefined))]
-queryToNodeA (Filter _ f q) = proc dbvalue -> do
-  ts <- node -< dbvalue
-  a <- fetch -< ()
-  store -< a
-  -- r <- AT.lift (AT.lift prA) -< ()
-  returnA -< ts
-  where node = queryToNodeA q
+-- queryToNodeA :: Query' (Key a, a) l -> NodeA a
+-- queryToNodeA (All _ (Row r' _)) = proc (DBValue action r value) -> do
+--   returnA -< [(action, (undefined, undefined))]
+-- queryToNodeA (Filter _ f q) = proc dbvalue -> do
+--   ts <- node -< dbvalue
+--   a <- fetch -< ()
+--   store -< a
+--   -- r <- AT.lift (AT.lift prA) -< ()
+--   returnA -< ts
+--   where node = queryToNodeA q
 
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after

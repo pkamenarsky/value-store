@@ -31,6 +31,7 @@ library
   other-extensions:    OverloadedStrings, QuasiQuotes, DeriveDataTypeable, DeriveGeneric
   build-depends:       base >=4.7 && <5
                      , arrows
+                     , auto
                      , bookkeeper
                      , bookkeeper-permissions
                      , bytestring
