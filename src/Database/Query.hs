@@ -320,18 +320,19 @@ query conn q cb = do
 
   PS.execute_ conn "listen person"
 
+  -- FIXME: here we may lose data / get doubles?
+
   -- withTransaction
   as   <- query_ conn ql
   node <- queryToNode conn ql
 
-  -- FIXME: here we may lose data
   let ix = case sort of
         SortBy e -> Ix.fromList (comparing (foldExpr e)) maxBound as
         Unsorted -> Ix.fromList (\_ _ -> EQ) maxBound as
 
   tid <- forkIO $ go ql node ix
-  return (Ix.toList ix, tid)
 
+  return (Ix.toList ix, tid)
   where
     sync (Insert (k, v)) ix = Ix.insert k v ix
     sync (Delete k)      ix = Ix.delete k ix
