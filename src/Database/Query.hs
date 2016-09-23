@@ -261,22 +261,19 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
 
 type NodeA a = Auto.Auto IO DBValue [(Action, (Key a, a))]
 
-withLocalStateA :: Ix.IxMap (Key a) a -> NodeA a -> NodeA a
-withLocalStateA st = undefined -- StateArrow (Automaton $ Kleisli $ \(b, _) -> runKleisli f (b, st))
-
 testNodeA :: NodeA String
-testNodeA = withLocalStateA (Ix.fromList [(Key "1", "1")] compare) $ proc dbv -> do
-  -- modifyA -< Ix.insert (Key "iii") "ooo"
-  -- MND.lift print -< "666"
-  -- st <- fetch -< ()
-  -- liftIO print -< st
+testNodeA = proc dbv -> do
   r <- testNodeA2 -< dbv
-  -- st <- fetch -< ()
-  -- liftIO print -< st
-  returnA -< []
+  old <- cache -< do
+    MT.liftIO $ putStrLn "asd"
+    ST.modify $ Ix.insert (Key "2") "2"
+  -- Auto.arrM print -< old
+  returnA -< [(Insert, (Key "asd", "asd"))]
+  where
+    cache = flip Auto.mkStateM_ (Ix.empty compare) runStateT
 
 testNodeA2 :: NodeA String
-testNodeA2 = withLocalStateA (Ix.fromList [(Key "2", "2")] compare) $ proc dbv -> do
+testNodeA2 = proc dbv -> do
   -- modifyA -< Ix.insert (Key "3") "3"
   -- liftIO print -< "777"
   returnA -< []
