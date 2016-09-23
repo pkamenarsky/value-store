@@ -232,8 +232,8 @@ queryToNode conn (All _ (Row row' _)) = return $ proc dbaction -> do
 queryToNode conn (Filter _ e q) = do
   node <- queryToNode conn q
 
-  return $ proc dbvalue -> do
-    rs <- node -< dbvalue
+  return $ proc dbaction -> do
+    rs <- node -< dbaction
     returnA -<
       [ r | r <- rs
       , case r of
@@ -254,8 +254,8 @@ queryToNode conn qq@(Sort l e offset limit q) = do
   -- on the encapsulated cache state and returns its result
   let cacheA = flip Auto.mkStateM_ cache runStateT
 
-  return $ proc dbvalue -> do
-    rs <- node -< dbvalue
+  return $ proc dbaction -> do
+    rs <- node -< dbaction
     cacheA -< go rs
 
   where
@@ -279,6 +279,32 @@ queryToNode conn qq@(Sort l e offset limit q) = do
         Delete k -> StateT   $ delete k
       as'' <- go as
       return $ as' ++ as''
+
+queryToNode conn (Join _ e ql qr) = do
+  nodel <- queryToNode conn ql
+  noder <- queryToNode conn qr
+
+  return $ proc dbaction -> do
+    asl <- nodel -< dbaction
+    asr <- noder -< dbaction
+
+    asl' <- Auto.arrM fillbranch -< (substFst e, qr, \l r -> KeyComp l r, \l r -> l :. r, asl)
+    asr' <- Auto.arrM fillbranch -< (substSnd e, ql, \r l -> KeyComp l r, \r l -> l :. r, asr)
+
+    returnA -< concat asl' ++ concat asr'
+  where
+    fillbranch :: FR b => (a -> Maybe (Expr b Bool), Query' (Key b, b) label, Key a -> Key b -> Key c, a -> b -> c, [Action a]) -> IO [[Action c]]
+    fillbranch (subst, q, combkey, combvalue, actions) =
+      forM actions $ \action -> do
+        case action of
+          Insert (k, v) -> do
+            asbr <- case subst v of
+              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ Filter () subst $ fmap (const ()) q
+              _          -> return []
+            return [ Insert (combkey k kbr, combvalue v vbr) | (kbr, vbr) <- asbr ]
+          Delete k -> do
+            return [ Delete (combkey k KeyStar) ]
+
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
