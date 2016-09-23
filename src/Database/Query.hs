@@ -24,10 +24,6 @@ module Database.Query where
 import qualified Control.Auto as Auto
 
 import Control.Arrow
-import Control.Arrow.Operations
-import Control.Arrow.Transformer as AT
-import Control.Arrow.Transformer.Automaton
-import Control.Arrow.Transformer.State as AST
 
 import Control.Monad hiding (join)
 import Control.Monad as MND
@@ -218,21 +214,17 @@ foldQuerySql (Join l f ql qr) =
 
 -- Operational -----------------------------------------------------------------
 
-type Node a = PS.Connection -> DBValue -> IO [(Action, (Key a, a))]
-
-withLocalState :: st -> (a -> b -> StateT st IO c) -> IO (a -> b -> IO c)
-withLocalState st f = do
-  stref <- newIORef st
-
-  return $ \a b -> do
-    st' <- readIORef stref
-    (b, st'') <- runStateT (f a b) st'
-    writeIORef stref st''
-    return b
+type Node a = Auto.Auto IO DBValue [(Action, (Key a, a))]
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
-queryToNode conn (All _ (Row r' _)) = return $ \_ (DBValue action r value) -> do
-  return [(action, (undefined, undefined))]
+queryToNode conn (All _ (Row r' _)) = return $ proc (DBValue action r value) -> do
+  returnA -< [(action, (undefined, undefined))]
+
+queryToNode conn (Filter _ f q) = do
+  node <- queryToNode conn q
+
+  return $ proc dbvalue -> do
+    node -< dbvalue
 
 queryToNode conn qq@(Sort _ e offset limit q) = do
   node <- queryToNode conn q
@@ -243,60 +235,8 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
       return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
-  withLocalState cache $ \conn dbvalue -> do
-    MT.lift (node conn dbvalue) >>= go
-    where
-      insert v@(k, a) cache
-        | cache' <- Ix.insert k a cache
-        , Just i <- Ix.elemIndex k cache' = ([(Insert, v)], cache')
-        | otherwise                       = ([], cache)
-
-      go [] = return []
-      go ((Insert, a):as) = do
-        a'  <- ST.state (insert a)
-        as' <- go as
-        return $ a' ++ as'
-
---------------------------------------------------------------------------------
-
-type NodeA a = Auto.Auto IO DBValue [(Action, (Key a, a))]
-
-{-
-testNodeA :: NodeA String
-testNodeA = proc dbv -> do
-  -- r <- testNodeA2 -< dbv
-  old <- cache -< do
-    MT.liftIO $ putStrLn "modifying"
-    ST.modify $ Ix.insert (Key dbv) dbv
-    ST.get
-  Auto.arrM print -< old
-  returnA -< [(Insert, (Key "asd", "asd"))]
-  where
-    cache = flip Auto.mkStateM_ (Ix.empty compare) runStateT
--}
-
--- runTestNode :: _
-runTestNodeA a dbv = Auto.stepAuto a dbv
-
-queryToNodeA :: PS.Connection -> QueryL (Key a, a) -> IO (NodeA a)
-queryToNodeA conn (All _ (Row r' _)) = return $ proc (DBValue action r value) -> do
-  returnA -< [(action, (undefined, undefined))]
-
-queryToNodeA conn (Filter _ f q) = do
-  node <- queryToNodeA conn q
-
-  return $ proc dbvalue -> do
-    node -< dbvalue
-
-queryToNodeA conn qq@(Sort _ e offset limit q) = do
-  node <- queryToNodeA conn q
-
-  cache <- case limit of
-    Just limit -> do
-      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
-      return $ Ix.limit limit $ Ix.fromList rs (comparing (foldExpr e))
-    Nothing    -> return $ Ix.empty (comparing (foldExpr e))
-
+  -- this arrow contains a local cache; it takes a StateT computation operating
+  -- on the encapsulated cache state and returns its result
   let cacheA = flip Auto.mkStateM_ cache runStateT
 
   return $ proc dbvalue -> do
