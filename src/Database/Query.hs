@@ -220,7 +220,14 @@ type Node a = Auto.Auto IO DBAction [Action a]
 
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
 queryToNode conn (All _ (Row row' _)) = return $ proc dbaction -> do
-  returnA -< [Insert undefined]
+  case dbaction of
+    DBInsert row value
+      | row == row'
+      , A.Success (k, v) <- A.fromJSON value -> returnA -< [Insert (Key k, v)]
+    DBDelete row value
+      | row == row'
+      , A.Success k <- A.fromJSON value -> returnA -< [Delete (Key k)]
+    otherwise -> returnA -< []
 
 queryToNode conn (Filter _ f q) = do
   node <- queryToNode conn q
