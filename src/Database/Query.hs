@@ -238,10 +238,10 @@ queryToNode conn (Filter _ e q) = do
       [ r | r <- rs
       , case r of
           Insert (_, v) -> foldExpr e v == Just True
-          Delete _      -> True
+          Delete _      -> True   -- always propagate Deletes (do we need to?)
       ]
 
-queryToNode conn qq@(Sort _ e offset limit q) = do
+queryToNode conn qq@(Sort l e offset limit q) = do
   node <- queryToNode conn q
 
   cache <- case limit of
@@ -259,16 +259,27 @@ queryToNode conn qq@(Sort _ e offset limit q) = do
     cacheA -< go rs
 
   where
-    insert v@(k, a) cache
-      | cache' <- Ix.insert k a cache
-      , Just i <- Ix.elemIndex k cache' = ([(Insert v)], cache')
+    insert a@(k, v) cache
+      | cache' <- Ix.insert k v cache
+      , Just i <- Ix.elemIndex k cache' = ([Insert a], cache')
       | otherwise                       = ([], cache)
 
+    delete k cache
+      | Just _ <- Ix.lookup k cache = do
+          as <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
+          return (Delete k : map Insert as, Ix.delete k cache)
+      | otherwise = do
+          return ([Delete k], cache)
+
     go [] = return []
-    go ((Insert a):as) = do
-      a'  <- ST.state (insert a)
-      as' <- go as
-      return $ a' ++ as'
+    go (Insert a:as) = do
+      as'  <- ST.state $ insert a
+      as'' <- go as
+      return $ as' ++ as''
+    go (Delete k:as) = do
+      as'  <- StateT $ delete k
+      as'' <- go as
+      return $ as' ++ as''
 
 -- NOTE: we need to ensure consistency. If something changes in the DB after
 -- a notification has been received, the data has to remain consitent. I.e:
