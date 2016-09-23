@@ -299,7 +299,8 @@ queryToNode conn (Join _ e ql qr) = do
         case action of
           Insert (k, v) -> do
             asbr <- case subst v of
-              Just subst -> query_ conn (Filter "subst" subst q)
+              -- is relabeling necessary here?
+              Just subst -> query_ conn (labelQuery $ Filter "subst" subst q)
               _          -> return []
             return [ Insert (combkey k kbr, combvalue v vbr) | (kbr, vbr) <- asbr ]
           Delete k -> do
