@@ -246,7 +246,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
 
   cache <- case limit of
     Just limit -> do
-      rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql qq)
+      rs <- query_ conn qq
       return $ Ix.fromList (comparing (foldExpr e)) limit rs
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
@@ -267,7 +267,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     delete k cache
       | Just _ <- Ix.lookup k cache = do
           -- FIXME: fix limit
-          as <- PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
+          as <- query_ conn (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
           return (Delete k : map Insert as, Ix.delete k $ foldr (uncurry Ix.insert) cache as)
       | otherwise = do
           return ([Delete k], cache)  -- always propagate Deletes (do we need to?)
@@ -293,13 +293,13 @@ queryToNode conn (Join _ e ql qr) = do
 
     returnA -< concat asl' ++ concat asr'
   where
-    fillbranch :: FR b => (a -> Maybe (Expr b Bool), Query' (Key b, b) label, Key a -> Key b -> Key c, a -> b -> c, [Action a]) -> IO [[Action c]]
+    fillbranch :: FR b => (a -> Maybe (Expr b Bool), QueryL (Key b, b), Key a -> Key b -> Key c, a -> b -> c, [Action a]) -> IO [[Action c]]
     fillbranch (subst, q, combkey, combvalue, actions) =
       forM actions $ \action -> do
         case action of
           Insert (k, v) -> do
             asbr <- case subst v of
-              Just subst -> PS.query_ conn $ PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery $ Filter () subst $ fmap (const ()) q
+              Just subst -> query_ conn (Filter "subst" subst q)
               _          -> return []
             return [ Insert (combkey k kbr, combvalue v vbr) | (kbr, vbr) <- asbr ]
           Delete k -> do
@@ -309,10 +309,10 @@ queryToNode conn (Join _ e ql qr) = do
 
 deriving instance Show PS.Notification
 
-query_ :: (Show a, PS.FromRow (Key a, a)) => PS.Connection -> Query (Key a, a) -> IO [(Key a, a)]
-query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery q)
+query_ :: FR a => PS.Connection -> QueryL (Key a, a) -> IO [(Key a, a)]
+query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
 
-query :: (Show a, PS.FromRow (Key a, a)) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
+query :: (Show a, FR a) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
 query conn q cb = do
   let ql   = labelQuery q
       sort = sortOrder ql
@@ -320,7 +320,7 @@ query conn q cb = do
   PS.execute_ conn "listen person"
 
   -- withTransaction
-  as   <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql ql)
+  as   <- query_ conn ql
   node <- queryToNode conn ql
 
   -- FIXME: here we may lose data
