@@ -306,51 +306,41 @@ queryToNode conn (Join _ e ql qr) = do
             return [ Delete (combkey k KeyStar) ]
 
 
-{-
-reconcile' :: SortOrder a -> Action a -> [K t a] -> [K t a]
-reconcile' Unsorted (Insert, a) as      = undefined -- snd $ insertByKey (\_ _ -> LT) key a as
-reconcile' (SortBy expr) (Insert, a) as = undefined -- snd $ insertByKey (comparing (foldExpr expr . unK)) key a as
-reconcile' _ (Delete, a) as             = undefined -- deleteAllBy (cmpKey (key a) . key) as
-
-reconcile :: SortOrder a -> [(Action, K t a)] -> [K t a] -> [K t a]
-reconcile so = flip $ foldr (reconcile' so)
 
 deriving instance Show PS.Notification
 
-query__ :: (Show a, PS.FromRow (Key t, a)) => PS.Connection -> Query (K t a) -> IO [(Key t, a)]
-query__ conn q = do
-  cq <- fillCaches conn (labelQuery q)
-  PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
+query_ :: (Show a, PS.FromRow (Key a, a)) => PS.Connection -> Query (Key a, a) -> IO [(Key a, a)]
+query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql $ labelQuery q)
 
-query_ :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> IO [K t a]
-query_ conn q = do
-  cq <- fillCaches conn (labelQuery q)
-  PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
-
-query :: (Show a, PS.FromRow (K t a)) => PS.Connection -> Query (K t a) -> ([K t a] -> IO ()) -> IO ([K t a], ThreadId)
+query :: (Show a, PS.FromRow (Key a, a)) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
 query conn q cb = do
-  cq <- fillCaches conn (labelQuery q)
-  rs <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql cq)
-
-  -- FIXME: here we may lose data
+  let ql   = labelQuery q
+      sort = sortOrder ql
 
   PS.execute_ conn "listen person"
 
-  tid <- forkIO $ go cq rs
-  return (rs, tid)
+  -- withTransaction
+  as   <- PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql ql)
+  node <- queryToNode conn ql
+
+  -- FIXME: here we may lose data
+  let ix = case sort of
+        SortBy e -> Ix.fromList (comparing (foldExpr e)) maxBound as
+        Unsorted -> Ix.fromList (\_ _ -> EQ) maxBound as
+
+  tid <- forkIO $ go ql node ix
+  return (Ix.toList ix, tid)
 
   where
-    go q rs = do
+    sync (Insert (k, v)) ix = Ix.insert k v ix
+    sync (Delete k)      ix = Ix.delete k ix
+
+    go q node ix = do
       nt <- PS.getNotification conn
       case A.decode (BL.fromStrict $ PS.notificationData nt) of
-        Just (action, a) -> do
-          -- traceIO $ show action
-          (q', so, as) <- passesQuery conn (DBValue action (B.unpack $ PS.notificationChannel nt) a) q
-          -- traceIO "ACTIONS: "
-          -- traceIO $ show as
-          let rs' = reconcile so as rs
-          cb rs'
-          go q' rs'
-        Nothing -> go q rs
--}
-
+        Just action -> do
+          (actions, node') <- Auto.stepAuto node action
+          let ix' = foldr sync ix actions
+          cb (Ix.toList ix')
+          go q node' ix'
+        Nothing -> go q node ix
