@@ -264,13 +264,13 @@ type NodeA a = StateArrow
                   [(Action, (Key a, a))]
 
 withLocalStateA :: Ix.IxMap (Key a) a -> NodeA a -> NodeA a
-withLocalStateA st (StateArrow (Automaton f)) = undefined -- StateArrow (Automaton $ \(b, _) -> f (b, st))
+withLocalStateA st (StateArrow (Automaton f)) = StateArrow (Automaton $ Kleisli $ \(b, _) -> runKleisli f (b, st))
 
 liftIO :: (a -> IO b) -> StateArrow st (Automaton (Kleisli IO)) a b
 liftIO f = proc a -> AT.lift (AT.lift (Kleisli f)) -< a
 
 testNodeA :: NodeA String
-testNodeA = {- withState' (Ix.empty compare) $ -} proc dbv -> do
+testNodeA = withLocalStateA (Ix.empty compare) $ proc dbv -> do
   store -< Ix.fromList [(Key "key", "bla")] compare
   liftIO print -< "666"
   returnA -< []
