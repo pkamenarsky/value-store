@@ -229,11 +229,17 @@ queryToNode conn (All _ (Row row' _)) = return $ proc dbaction -> do
       , A.Success k <- A.fromJSON value -> returnA -< [Delete (Key k)]
     otherwise -> returnA -< []
 
-queryToNode conn (Filter _ f q) = do
+queryToNode conn (Filter _ e q) = do
   node <- queryToNode conn q
 
   return $ proc dbvalue -> do
-    node -< dbvalue
+    rs <- node -< dbvalue
+    returnA -<
+      [ r | r <- rs
+      , case r of
+          Insert (_, v) -> foldExpr e v == Just True
+          Delete _      -> True
+      ]
 
 queryToNode conn qq@(Sort _ e offset limit q) = do
   node <- queryToNode conn q
