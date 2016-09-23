@@ -9,3 +9,4 @@
   * Declare transactions as READ ONLY when possible.
   * Control the number of active connections, using a connection pool if needed.
 * notify doesn't work inside two-phase commit
+* for two phase commit: clean up uncommited transactions on crash
