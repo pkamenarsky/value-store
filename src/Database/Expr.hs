@@ -46,10 +46,16 @@ data Expr r a where
   Eqs   :: Eq  a => Expr r a -> Expr r a -> Expr r Bool
   Plus  :: Num n => Expr r n -> Expr r n -> Expr r n
 
-instance Show (a -> Maybe b) where
-  show _ = "(a -> Maybe b)"
-
-deriving instance Show (Expr r a)
+instance Show (Expr r a) where
+  show ((:+:) e1 e2) = show e1 ++ "." ++ show e2
+  show (Cnst a)      = show a
+  show (Fld fld _)   = fld
+  show (Fst e)       = "fst " ++ brackets (show e)
+  show (Snd e)       = "snd " ++ brackets (show e)
+  show (And e1 e2)   = brackets(show e1) ++ " ∧ " ++ brackets(show e2)
+  show (Grt e1 e2)   = brackets(show e1) ++ " > " ++ brackets(show e2)
+  show (Eqs e1 e2)   = brackets(show e1) ++ " ≡ " ++ brackets(show e2)
+  show (Plus e1 e2)  = brackets(show e1) ++ " + " ++ brackets(show e2)
 
 foldExprSql :: Ctx -> Expr r a -> String
 -- TODO: FIXME

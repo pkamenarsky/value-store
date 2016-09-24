@@ -125,16 +125,20 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
 type FR a = PS.FromRow (Key a, a)
 
 data Query' a l where
-  All    :: (FR a, A.FromJSON a)
+  All    :: (FR a, Show a, A.FromJSON a)
               => l -> Row -> Query' (Key a, a) l
-  Filter :: (FR a)
+  Filter :: (FR a, Show a)
               => l -> Expr a Bool -> Query' (Key a, a) l -> Query' (Key a, a) l
   Sort   :: (FR a, Ord b, Show a)
               => l -> Expr a b -> Maybe Int -> Maybe Int -> Query' (Key a, a) l -> Query' (Key a, a) l
   Join   :: (Show a, Show b, FR a, FR b, FR (a :. b))
               => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
 
-deriving instance (Show l, Show a) => Show (Query' a l)
+instance (Show l, Show a) => Show (Query' a l) where
+  show (All _ (Row row _))       = "[ " ++ row ++ " ]"
+  show (Filter _ e q)            = "[ " ++ show e ++ " | " ++ show q ++ " ]"
+  show (Sort _ e offset limit q) = "[ " ++ show e ++ " ∎ " ++ maybe "" show offset ++ " ∎ " ++ maybe "" show limit ++ " ⊨ " ++ show q ++ " ]"
+  show (Join _ e ql qr)          = "[ " ++ show e ++ " | " ++ show ql ++ " ⨝ " ++ show qr ++ " ]"
 
 deriving instance Functor (Query' a)
 deriving instance Foldable (Query' a)
@@ -143,7 +147,7 @@ deriving instance Traversable (Query' a)
 type Query a  = Query' a ()
 type QueryL a = Query' a String
 
-all :: forall a. (Typeable a, PS.FromRow (Key a, a), Fields a, A.FromJSON a) => Query (Key a, a)
+all :: forall a. (Typeable a, Show a, PS.FromRow (Key a, a), Fields a, A.FromJSON a) => Query (Key a, a)
 all = All () (Row table' kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
@@ -277,6 +281,11 @@ queryToNode conn qq@(Sort l e offset limit q) = do
 
     go [] = return []
     go (a:as) = do
+      cache <- ST.get
+      MT.lift $ print $ "ACTION: " ++ show a
+      MT.lift $ print $ "CACHE: " ++ show cache
+      MT.lift $ print $ "LIMIT: " ++ show limit
+
       as'  <- case a of
         Insert a -> ST.state $ insert a
         Delete k -> StateT   $ delete k
@@ -296,7 +305,7 @@ queryToNode conn (Join _ e ql qr) = do
 
     returnA -< concat asl' ++ concat asr'
   where
-    fillbranch :: FR b => (a -> Maybe (Expr b Bool), QueryL (Key b, b), Key a -> Key b -> Key c, a -> b -> c, [Action a]) -> IO [[Action c]]
+    fillbranch :: (Show b, FR b) => (a -> Maybe (Expr b Bool), QueryL (Key b, b), Key a -> Key b -> Key c, a -> b -> c, [Action a]) -> IO [[Action c]]
     fillbranch (subst, q, combkey, combvalue, actions) =
       forM actions $ \action -> do
         case action of
@@ -309,8 +318,10 @@ queryToNode conn (Join _ e ql qr) = do
           Delete k -> do
             return [ Delete (combkey k KeyStar) ]
 
-query_ :: FR a => PS.Connection -> QueryL (Key a, a) -> IO [(Key a, a)]
-query_ conn q = PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
+query_ :: (Show a, FR a) => PS.Connection -> QueryL (Key a, a) -> IO [(Key a, a)]
+query_ conn q = do
+  print q
+  PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
 
 -- could make that into coroutine? maybe nice for Views?
 query :: (Show a, FR a) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
