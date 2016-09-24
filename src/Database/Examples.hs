@@ -217,8 +217,8 @@ testSort = do
 
     let q  -- = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
            = -- Join () (Fst ageE `Eqs` Snd ageE) allPersons $ Filter () ((ageE `Grt` Cnst 5)) allPersons
-             -- Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
-             Join () (Fst ageE `Eqs` Snd ageE) allPersons $ Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
+             Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
+             -- Join () (Fst ageE `Eqs` Snd ageE) allPersons $ Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
              -- Join () (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn (labelQuery q)
@@ -246,9 +246,9 @@ testSort = do
     forM [0..20] $ \k -> do
       insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
-      insertRow conn ("key" ++ show k) (Person "john" k)
-      putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
+      putMVar lock ()
+      insertRow conn ("key" ++ show k) (Person "john" k)
       putMVar lock ()
       deleteRow conn ("key" ++ show k) (Proxy :: Proxy Person)
       putMVar lock ()

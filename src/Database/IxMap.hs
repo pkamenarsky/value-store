@@ -22,7 +22,7 @@ import qualified Prelude as P
 data IxMap k a = IxMap [(k, a)] (a -> a -> Ordering) Int
 
 instance (Show k, Show a) => Show (IxMap k a) where
-  show (IxMap xs _ _) = show xs
+  show (IxMap xs _ limit) = show xs ++ ", limit: " ++ show limit
 
 empty :: (a -> a -> Ordering) -> IxMap k a
 empty sort = IxMap [] sort maxBound

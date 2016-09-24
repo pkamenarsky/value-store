@@ -281,13 +281,16 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     go [] = return []
     go (a:as) = do
       cache <- ST.get
+      MT.lift $ putStrLn $ "  Cache : " ++ show cache
       MT.lift $ putStrLn $ "  Action: " ++ show a
 
       as'  <- case a of
         Insert a -> ST.state $ insert a
         Delete k -> StateT   $ delete k
       as'' <- go as
-      MT.lift $ putStrLn $ "   Result: " ++ show (as' ++ as'')
+      MT.lift $ putStrLn $ "  Result: " ++ show (as' ++ as'')
+      cache <- ST.get
+      MT.lift $ putStrLn $ "  Cache': " ++ show cache
       return $ as' ++ as''
 
 queryToNode conn (Join _ e ql qr) = do
@@ -352,7 +355,10 @@ query conn q cb = do
         Just action -> do
           -- withTransaction
           (actions, node') <- Auto.stepAuto node action
+          putStrLn $ "  Ix      : " ++ show ix
+          putStrLn $ "  Actions : " ++ show actions
           let ix' = foldr sync ix actions
+          putStrLn $ "  Ix'     : " ++ show ix'
           cb (Ix.toList ix')
           go q node' ix'
         Nothing -> go q node ix
