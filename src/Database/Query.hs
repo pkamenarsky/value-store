@@ -282,9 +282,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     go [] = return []
     go (a:as) = do
       cache <- ST.get
-      MT.lift $ print $ "ACTION: " ++ show a
-      MT.lift $ print $ "CACHE: " ++ show cache
-      MT.lift $ print $ "LIMIT: " ++ show limit
+      MT.lift $ print $ "  Action: " ++ show a
 
       as'  <- case a of
         Insert a -> ST.state $ insert a
