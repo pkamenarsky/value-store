@@ -273,8 +273,7 @@ queryToNode conn qq@(Sort l e offset limit q) = do
 
     delete k cache
       | Just _ <- Ix.lookup k cache = do
-          -- FIXME: fix limit
-          as <- query_ conn (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) limit q)
+          as <- query_ conn (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) (Just $ fromMaybe maxBound limit - Ix.size cache + 1) q)
           return (Delete k : map Insert as, Ix.delete k $ foldr (uncurry Ix.insert) cache as)
       | otherwise = do
           return ([Delete k], cache)  -- always propagate Deletes (do we need to?)
@@ -282,12 +281,13 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     go [] = return []
     go (a:as) = do
       cache <- ST.get
-      MT.lift $ print $ "  Action: " ++ show a
+      MT.lift $ putStrLn $ "  Action: " ++ show a
 
       as'  <- case a of
         Insert a -> ST.state $ insert a
         Delete k -> StateT   $ delete k
       as'' <- go as
+      MT.lift $ putStrLn $ "   Result: " ++ show (as' ++ as'')
       return $ as' ++ as''
 
 queryToNode conn (Join _ e ql qr) = do
