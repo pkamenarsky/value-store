@@ -135,7 +135,7 @@ data Query' a l where
               => l -> Expr (a :. b) Bool -> Query' (Key a, a) l -> Query' (Key b, b) l -> Query' (Key (a :. b), (a :. b)) l
 
 instance (Show l, Show a) => Show (Query' a l) where
-  show (All _ (Row row _))       = "[ " ++ row ++ " ]"
+  show (All _ (Row row _))       = row
   show (Filter _ e q)            = "[ " ++ show e ++ " | " ++ show q ++ " ]"
   show (Sort _ e offset limit q) = "[ " ++ show e ++ " ∎ " ++ maybe "" show offset ++ " ∎ " ++ maybe "" show limit ++ " ⊨ " ++ show q ++ " ]"
   show (Join _ e ql qr)          = "[ " ++ show e ++ " | " ++ show ql ++ " ⨝ " ++ show qr ++ " ]"

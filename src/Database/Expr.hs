@@ -50,12 +50,14 @@ instance Show (Expr r a) where
   show ((:+:) e1 e2) = show e1 ++ "." ++ show e2
   show (Cnst a)      = show a
   show (Fld fld _)   = fld
-  show (Fst e)       = "fst " ++ brackets (show e)
-  show (Snd e)       = "snd " ++ brackets (show e)
-  show (And e1 e2)   = brackets(show e1) ++ " ∧ " ++ brackets(show e2)
-  show (Grt e1 e2)   = brackets(show e1) ++ " > " ++ brackets(show e2)
-  show (Eqs e1 e2)   = brackets(show e1) ++ " ≡ " ++ brackets(show e2)
-  show (Plus e1 e2)  = brackets(show e1) ++ " + " ++ brackets(show e2)
+  show (Fst e)       = show e
+  show (Snd e)       = show e
+  -- show (Fst e)       = "fst " ++ brackets (show e)
+  -- show (Snd e)       = "snd " ++ brackets (show e)
+  show (And e1 e2)   = show e1 ++ " ∧ " ++ show e2
+  show (Grt e1 e2)   = show e1 ++ " > " ++ show e2
+  show (Eqs e1 e2)   = show e1 ++ " ≡ " ++ show e2
+  show (Plus e1 e2)  = show e1 ++ " + " ++ show e2
 
 foldExprSql :: Ctx -> Expr r a -> String
 -- TODO: FIXME
