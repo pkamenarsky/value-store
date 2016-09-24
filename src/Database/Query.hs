@@ -125,6 +125,7 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
 type FR a = PS.FromRow (Key a, a)
 
 data Query' a l where
+  Set    :: (Show a) => [(Key a, a)] -> Query' (Key a, a) l
   All    :: (FR a, Show a, A.FromJSON a)
               => l -> Row -> Query' (Key a, a) l
   Filter :: (FR a, Show a)
@@ -274,8 +275,9 @@ queryToNode conn qq@(Sort l e offset limit q) = do
       | cache' <- Ix.insert k v cache
       , Just i <- Ix.elemIndex k cache'
       , Just (kl, _) <- Ix.last cache
-      , Just limit' <- limit
-      , Ix.size cache == limit' - fromMaybe 0 offset = ([Insert a, Delete kl], cache')
+      , Just limit'  <- limit
+      , Nothing <- Ix.elemIndex k cache
+      , Ix.size cache == limit' = ([Insert a, Delete kl], cache')
       | cache' <- Ix.insert k v cache
       , Just i <- Ix.elemIndex k cache' = ([Insert a], cache')
       | otherwise                       = ([], cache)
