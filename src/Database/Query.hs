@@ -102,13 +102,13 @@ instance Eq (Key a) where
   KeyComp k1 l1 == KeyComp k2 l2 = k1 == k2 && l1 == l2
   _             == _             = False
 
-instance Fields a => PS.FromRow (Key a, a) where
+instance {-# OVERLAPPING #-} Fields a => PS.FromRow (Key a, a) where
   fromRow = do
     k <- PS.field
     a <- fromMaybe (error "Can't parse") <$> evalStateT cnstS ""
     return (Key k, a)
 
-instance (PS.FromRow (Key a, a), PS.FromRow (Key b, b)) => PS.FromRow (Key (a :. b), (a :. b)) where
+instance {-# OVERLAPPING #-} (PS.FromRow (Key a, a), PS.FromRow (Key b, b)) => PS.FromRow (Key (a :. b), (a :. b)) where
   fromRow = do
     (k, a) <- PS.fromRow
     (l, b) <- PS.fromRow
@@ -143,14 +143,14 @@ deriving instance Traversable (Query' a)
 type Query a  = Query' a ()
 type QueryL a = Query' a String
 
-{-
-all :: forall a. (Typeable a, PS.FromRow (K (Key a) a), Fields a, A.FromJSON a) => Query (K (Key a) a)
+all :: forall a. (Typeable a, PS.FromRow (Key a, a), Fields a, A.FromJSON a) => Query (Key a, a)
 all = All () (Row table' kvs)
   where
     kvs    = "key":(map fst $ flattenObject "" $ fields (Nothing :: Maybe a))
     table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
     table' = L.filter (/= '\'') table
 
+{-
 filter :: PS.FromRow (K t a) => Expr a Bool -> Query (K t a) -> Query (K t a)
 filter = Filter ()
 

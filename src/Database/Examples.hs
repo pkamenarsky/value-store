@@ -7,12 +7,17 @@
 
 module Database.Examples where
 
+import Control.Monad (forM_, forM)
+import Control.Concurrent
+import Control.Concurrent.MVar
+
 import qualified Data.Aeson as A
 
 import Bookkeeper hiding (Key, get, modify)
 import Bookkeeper.Permissions hiding (modify, read, insert)
 
 import qualified Data.List        as L
+import qualified Data.Set         as S
 import Data.Typeable
 
 import Database.Bookkeeper
@@ -167,33 +172,63 @@ env = do
       a = Address "doom" p
 
   return (conn, p, a)
+-}
+
+data Person = Person { _name :: String, _age :: Int }
+            | Robot { _ai :: Bool }
+            | Undead { _kills :: Int } deriving (Eq, Ord, Generic, Typeable, Show)
+
+instance A.FromJSON Person
+instance A.ToJSON Person
+
+instance Fields Person
+
+killsE :: Expr (Person) Int
+killsE = Fld "kills" $ \p -> case p of
+  Undead {..} -> Just _kills
+  _ -> Nothing
+
+nameE :: Expr (Person) String
+nameE = Fld "name" $ \p -> case p of
+  p@Person{..} -> Just _name
+  _ -> Nothing
+
+ageE :: Expr (Person) Int
+ageE = Fld "age" $ \p -> case p of
+  p@Person{..} -> Just _age
+  _ -> Nothing
+
+aiE :: Expr (Person) Bool
+aiE = Fld "ai" $ \p -> case p of
+  p@Robot{..} -> Just _ai
+  _ -> Nothing
+
+allPersons :: Query (Key Person, Person)
+allPersons = all
 
 testSort :: IO ()
 testSort = do
   conn <- PS.connectPostgreSQL "host=localhost port=5432 dbname='value'"
 
-  insertRow conn ("key0") (Undead $ emptyBook & #_kills =: unsafePermission 5 :: Person)
-
-  {-
   forM_ [0..10] $ \limit -> do
     PS.execute_ conn "delete from person"
 
     lock <- newMVar ()
 
     let q  -- = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
-           = join (Fst ageE `Eqs` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
+           = Join () (Fst ageE `Eqs` Snd ageE) allPersons $ Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
              -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
-          rs' <- query_ conn q
-          -- if (S.fromList rs /= S.fromList rs')
-          if (rs /= rs')
+          rs' <- query_ conn (labelQuery q)
+          if (S.fromList rs /= S.fromList rs')
+          -- if (rs /= rs')
             then do
               traceIO "Different results, expected: "
               traceIO $ show rs'
               traceIO "Received: "
               traceIO $ show rs
               traceIO "Difference: "
-              -- traceIO $ show ((S.fromList rs' `S.difference` S.fromList rs) `S.union` (S.fromList rs `S.difference` S.fromList rs'))
+              traceIO $ show ((S.fromList rs' `S.difference` S.fromList rs) `S.union` (S.fromList rs `S.difference` S.fromList rs'))
               traceIO "Query: "
               traceIO $ show q
               error "Aborting"
@@ -217,7 +252,5 @@ testSort = do
       putMVar lock ()
 
     killThread tid
-  -}
--}
 
 --------------------------------------------------------------------------------
