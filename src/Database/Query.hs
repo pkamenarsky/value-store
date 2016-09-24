@@ -257,6 +257,8 @@ queryToNode conn qq@(Sort l e offset limit q) = do
       return $ Ix.fromList (comparing (foldExpr e)) limit rs
     Nothing    -> return $ Ix.empty (comparing (foldExpr e))
 
+  putStrLn $ "  Filling cache: " ++ show cache
+
   -- this arrow contains a local cache; it takes a StateT computation operating
   -- on the encapsulated cache state and returns its result
   let cacheA = flip Auto.mkStateM_ cache runStateT
@@ -266,7 +268,14 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     cacheA -< go rs
 
   where
+    -- FIXME: when new key is inserted and element pushes back last, element remove
+    -- analogously for Delete; also check offset
     insert a@(k, v) cache
+      | cache' <- Ix.insert k v cache
+      , Just i <- Ix.elemIndex k cache'
+      , Just (kl, _) <- Ix.last cache
+      , Just limit' <- limit
+      , Ix.size cache == limit' - fromMaybe 0 offset = ([Insert a, Delete kl], cache')
       | cache' <- Ix.insert k v cache
       , Just i <- Ix.elemIndex k cache' = ([Insert a], cache')
       | otherwise                       = ([], cache)
@@ -274,7 +283,10 @@ queryToNode conn qq@(Sort l e offset limit q) = do
     delete k cache
       | Just _ <- Ix.lookup k cache = do
           as <- query_ conn (Sort l e (Just $ max 0 $ fromMaybe 0 offset + Ix.size cache - 1) (Just $ fromMaybe maxBound limit - Ix.size cache + 1) q)
-          return (Delete k : map Insert as, Ix.delete k $ foldr (uncurry Ix.insert) cache as)
+          (as', cache') <- ST.runStateT (go $ map Insert as) (Ix.delete k cache)
+          return (Delete k : as', cache')
+
+          -- return (Delete k : map Insert as, foldr (uncurry Ix.insert) (Ix.delete k cache) as)
       | otherwise = do
           return ([Delete k], cache)  -- always propagate Deletes (do we need to?)
 

@@ -2,6 +2,8 @@ module Database.IxMap
   ( IxMap
 
   , empty
+  , Database.IxMap.head
+  , Database.IxMap.last
   , delete
   , insert
   , lookup
@@ -29,6 +31,14 @@ empty sort = IxMap [] sort maxBound
 
 delete :: Ord k => k -> IxMap k a -> IxMap k a
 delete k (IxMap xs sort limit) = IxMap (L.deleteBy ((==) `on` fst) (k, undefined) xs) sort limit
+
+head :: Ord k => IxMap k a -> Maybe (k, a)
+head (IxMap [] _ _) = Nothing
+head (IxMap xs _ _) = Just $ P.head xs
+
+last :: Ord k => IxMap k a -> Maybe (k, a)
+last (IxMap [] _ _) = Nothing
+last (IxMap xs _ _) = Just $ P.last xs
 
 insert :: Ord k => k -> a -> IxMap k a -> IxMap k a
 insert k a (IxMap xs sort limit) = IxMap (L.take limit $ L.insertBy (sort `on` snd) (k, a) $ L.deleteBy ((==) `on` fst) (k, undefined) xs) sort limit
