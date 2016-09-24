@@ -80,7 +80,7 @@ import Debug.Trace
 
 data Row = Row String [String] deriving Show
 
-data DBAction = DBInsert String A.Value | DBDelete String A.Value deriving (Generic)
+data DBAction = DBInsert String String A.Value | DBDelete String String deriving (Generic)
 
 instance A.FromJSON DBAction
 instance A.ToJSON DBAction
@@ -225,12 +225,11 @@ type Node a = Auto.Auto IO DBAction [Action a]
 queryToNode :: PS.Connection -> QueryL (Key a, a) -> IO (Node a)
 queryToNode conn (All _ (Row row' _)) = return $ proc dbaction -> do
   case dbaction of
-    DBInsert row value
+    DBInsert row k value
       | row == row'
-      , A.Success (k, v) <- A.fromJSON value -> returnA -< [Insert (Key k, v)]
-    DBDelete row value
-      | row == row'
-      , A.Success k <- A.fromJSON value -> returnA -< [Delete (Key k)]
+      , A.Success v <- A.fromJSON value -> returnA -< [Insert (Key k, v)]
+    DBDelete row k
+      | row == row' -> returnA -< [Delete (Key k)]
     otherwise -> returnA -< []
 
 queryToNode conn (Filter _ e q) = do
@@ -342,6 +341,7 @@ query conn q cb = do
       nt <- PS.getNotification conn
       case A.decode (BL.fromStrict $ PS.notificationData nt) of
         Just action -> do
+          -- withTransaction
           (actions, node') <- Auto.stepAuto node action
           let ix' = foldr sync ix actions
           cb (Ix.toList ix')

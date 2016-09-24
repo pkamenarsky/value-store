@@ -12,3 +12,20 @@
   * Control the number of active connections, using a connection pool if needed.
 * notify doesn't work inside two-phase commit
 * for two phase commit: clean up uncommited transactions on crash
+
+* proof
+  Q [x]: N1 -> I1 x -> N2 -> D x
+         T[]   T[x]    T[x]  T[]
+
+  Q [x]: N1 -> N2 -> I1 x -> D x
+         T[]   T[]   T[x]    T[]
+
+  Q [x, y]: N1 -> I1 x -> N2 -> I y
+            T[]   T[]     T[]   T[x, y]
+
+  Q [x, y]: N1 -> N2 -> I1 x -> I y
+            T[]   T[]   T[]     T[, y]
+
+  Q [x, y]: N1 ->    I1 x2 ->         N2 -> I y2
+            T[x, y]  T[x, y; x1, y]         T[x, y; x1, y; x, y2; x1, y2]
+

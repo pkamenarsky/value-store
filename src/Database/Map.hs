@@ -38,11 +38,10 @@ import GHC.Generics
 
 import Debug.Trace
 
-{-
-insertRow :: forall a. (Show a, A.ToJSON a, Fields a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
+insertRow :: forall a. (Show a, A.ToJSON a, Fields a, Typeable a, PS.ToRow a) => PS.Connection -> String -> a -> IO ()
 insertRow conn k a = do
   let kvs    = "key":(map fst $ flattenObject "" $ fields (Just a))
-      table  = "person" -- map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
+      table  = map toLower $ tyConName $ typeRepTyCon $ typeRep (Proxy :: Proxy a)
       stmt   = "insert into "
             <> table
             <> " (" <> mconcat (intersperse ", " kvs) <> ")"
@@ -54,7 +53,7 @@ insertRow conn k a = do
 
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k :. a :. a)
-  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Insert, (k, a)))
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (DBInsert table k (A.toJSON a)))
 
 deleteRow :: forall a. (Typeable a) => PS.Connection -> String -> Proxy a -> IO ()
 deleteRow conn k _ = do
@@ -65,8 +64,9 @@ deleteRow conn k _ = do
 
   -- traceIO stmt
   void $ PS.execute conn (PS.Query $ B.pack stmt) (PS.Only k)
-  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (Delete, k))
+  void $ PS.execute conn (PS.Query $ B.pack ("notify " ++ table ++ ", ?")) (PS.Only $ A.toJSON (DBDelete table k))
 
+{-
 modifyRow' :: forall a prf. (Generic a, Fields (MapADTM "modify" prf a), A.FromJSON a, A.ToJSON (MapADTM "modify" prf a), Typeable (MapADTM "modify" prf a), Show (MapADTM "modify" prf a), Generic (MapADTM "modify" prf a), MapGeneric "modify" prf (Rep a) (Rep (MapADTM "modify" prf a)), Show a, Typeable a, A.ToJSON a, Fields a, PS.FromRow a)
           => PS.Connection
           -> Set.Set prf
