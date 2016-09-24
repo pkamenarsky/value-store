@@ -217,7 +217,7 @@ testSort = do
 
     let q  -- = join (Fst ageE `Grt` Snd ageE) allPersons $ sort ageE (Just 0) (Just limit) $ filter ((ageE `Grt` Cnst 5)) allPersons
            = Join () (Fst ageE `Eqs` Snd ageE) allPersons $ Sort () ageE (Just 0) (Just limit) $ Filter () ((ageE `Grt` Cnst 5)) allPersons
-             -- join (Fst ageE `Eqs` Snd ageE) allPersons allPersons
+             -- Join () (Fst ageE `Eqs` Snd ageE) allPersons allPersons
         cb rs = do
           rs' <- query_ conn (labelQuery q)
           if (S.fromList rs /= S.fromList rs')
