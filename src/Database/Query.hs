@@ -92,8 +92,12 @@ data Key a where
   KeyStar :: Key a
   KeyComp :: Key a -> Key b -> Key (a :. b)
 
+instance Show (Key a) where
+  show (Key k)         = k
+  show KeyStar         = "⊙"
+  show (KeyComp k1 k2) = "[ " ++ show k1 ++ " ⋈ " ++ show k2 ++ " ]"
+
 deriving instance Ord (Key t)
-deriving instance Show (Key t)
 
 instance Eq (Key a) where
   Key k1        == Key k2        = k1 == k2
@@ -125,7 +129,7 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
 type FR a = PS.FromRow (Key a, a)
 
 data Query' a l where
-  Set    :: (Show a) => [(Key a, a)] -> Query' (Key a, a) l
+  Set    :: (Show a) => Row -> [(Key a, a)] -> Query' (Key a, a) l
   All    :: (FR a, Show a, A.FromJSON a)
               => l -> Row -> Query' (Key a, a) l
   Filter :: (FR a, Show a)
@@ -223,7 +227,11 @@ foldQuerySql (Join l f ql qr) =
 
 -- Operational -----------------------------------------------------------------
 
-data Action a = Insert (Key a, a) | Delete (Key a) deriving (Eq, Show)
+data Action a = Insert (Key a, a) | Delete (Key a) deriving (Eq)
+
+instance Show a => Show (Action a) where
+  show (Insert (k, a)) = "[ ⊕ " ++ show k ++ ", " ++ show a ++ " ]"
+  show (Delete k)      = "[ ⊖ " ++ show k ++ " ]"
 
 type Node a = Auto.Auto IO DBAction [Action a]
 
