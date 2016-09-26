@@ -129,7 +129,7 @@ instance {-# OVERLAPPABLE #-} Fields a => PS.FromRow a where
 type FR a = PS.FromRow (Key a, a)
 
 data Query' a l where
-  Set    :: (Show a) => Row -> [(Key a, a)] -> Query' (Key a, a) l
+  -- Set    :: (Show a) => Row -> [(Key a, a)] -> Query' (Key a, a) l
   All    :: (FR a, Show a, A.FromJSON a)
               => l -> Row -> Query' (Key a, a) l
   Filter :: (FR a, Show a)
