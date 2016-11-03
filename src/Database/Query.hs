@@ -347,8 +347,8 @@ query_ conn q = do
   PS.query_ conn (PS.Query $ B.pack $ fst $ foldQuerySql q)
 
 -- could make that into coroutine? maybe nice for Views?
-query :: (Show a, FR a) => PS.Connection -> Query (Key a, a) -> ([(Key a, a)] -> IO ()) -> IO ([(Key a, a)], ThreadId)
-query conn q cb = do
+query :: (Show a, FR a) => PS.Connection -> Query (Key a, a) -> IO ([(Key a, a)], ([(Key a, a)] -> IO ()) -> IO ThreadId)
+query conn q = do
   let ql   = labelQuery q
       sort = sortOrder ql
 
@@ -364,23 +364,25 @@ query conn q cb = do
         SortBy e -> Ix.fromList (comparing (foldExpr e)) maxBound as
         Unsorted -> Ix.fromList (\_ _ -> EQ) maxBound as
 
-  tid <- forkIO $ go ql node ix
+  ixref <- newMVar ix
 
-  return (Ix.toList ix, tid)
+  return (Ix.toList ix, go ql node ixref)
   where
     sync (Insert (k, v)) ix = Ix.insert k v ix
     sync (Delete k)      ix = Ix.delete k ix
 
-    go q node ix = do
+    go q node ixref cb = forkIO $ do
       nt <- PS.getNotification conn
+
       case A.decode (BL.fromStrict $ PS.notificationData nt) of
         Just action -> do
           -- withTransaction
-          (actions, node') <- Auto.stepAuto node action
-          putStrLn $ "  Ix      : " ++ show ix
-          putStrLn $ "  Actions : " ++ show actions
-          let ix' = foldr sync ix actions
-          putStrLn $ "  Ix'     : " ++ show ix'
-          cb (Ix.toList ix')
-          go q node' ix'
-        Nothing -> go q node ix
+          modifyMVar_ ixref $ \ix -> do
+            (actions, node') <- Auto.stepAuto node action
+            putStrLn $ "  Ix      : " ++ show ix
+            putStrLn $ "  Actions : " ++ show actions
+            let ix' = foldr sync ix actions
+            putStrLn $ "  Ix'     : " ++ show ix'
+            cb (Ix.toList ix')
+            return ix'
+        Nothing -> undefined
